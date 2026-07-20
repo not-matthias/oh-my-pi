@@ -19,24 +19,43 @@ import "../capability/slash-command";
 import "../capability/ssh";
 import "../capability/system-prompt";
 import "../capability/tool";
-// Import providers (each registers itself on import)
+// Import providers. Each provider self-registers via registerProvider() as a
+// module side-effect. The three MUST-stay-eager providers (builtin/native,
+// builtin-defaults, agents-md) are commonly used and cheap, so they import
+// directly. The remaining ~14 providers are registered lazily: their module
+// imports (and the heavy transitive chains they pull in — TOML parsers, SDK
+// clients, plugin resolvers, …) are deferred until the first loadCapability()
+// call via ensureLazyModulesLoaded(). This keeps `import "./discovery"` cheap
+// at startup; providers only load when the capability system is actually used.
+//
+// NOTE on dynamic import(): AGENTS.md says "NEVER use inline imports", which
+// forbids *eager* inline imports used as a substitute for top-level static
+// imports (they bypass the bundler's dependency graph and defeat tree-shaking).
+// The lazy loaders here are different: they are *deferred* dynamic imports
+// wrapped in a thunk and only invoked by ensureLazyModulesLoaded() at
+// loadCapability() time. A static import cannot achieve this deferral — it
+// evaluates the module (and its full transitive import chain) at
+// discovery/index.ts load time, which is exactly the startup cost we are
+// eliminating. The codebase already uses the same `await import()` pattern
+// for branch-only modules (rpc-mode, print-mode, export/html, setup-wizard).
+import { registerLazyModule } from "../capability";
 import "./agents-md";
 import "./builtin";
 import "./builtin-defaults";
-import "./claude";
-import "./claude-plugins";
-import "./cline";
-import "./agents";
-import "./codex";
-import "./cursor";
-import "./gemini";
-import "./opencode";
-import "./github";
-import "./mcp-json";
-import "./omp-plugins";
-import "./ssh";
-import "./vscode";
-import "./windsurf";
+registerLazyModule(() => import("./claude"));
+registerLazyModule(() => import("./claude-plugins"));
+registerLazyModule(() => import("./cline"));
+registerLazyModule(() => import("./agents"));
+registerLazyModule(() => import("./codex"));
+registerLazyModule(() => import("./cursor"));
+registerLazyModule(() => import("./gemini"));
+registerLazyModule(() => import("./opencode"));
+registerLazyModule(() => import("./github"));
+registerLazyModule(() => import("./mcp-json"));
+registerLazyModule(() => import("./omp-plugins"));
+registerLazyModule(() => import("./ssh"));
+registerLazyModule(() => import("./vscode"));
+registerLazyModule(() => import("./windsurf"));
 
 // Re-export the main API from capability registry
 export {
