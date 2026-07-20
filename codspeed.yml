@@ -1,0 +1,18 @@
+# CodSpeed benchmark configuration.
+#
+# Two tracks:
+# 1. CLI `exec:` mode — wraps whole-process commands (boot, rendering probes).
+#    Measures wall-clock end-to-end, including process spawn. This is the only
+#    route that can benchmark startup, since function-level plugins run inside
+#    an already-started process.
+# 2. tinybench suites — per-function micro-benchmarks run via `bun run bench:codspeed`.
+#    These are tracked separately by CodSpeed when run under the CI action.
+#
+# Walltime mode is used because omp targets the Bun runtime (JavaScriptCore);
+# CodSpeed's default CPU-simulation instrument is V8-only and will not fire.
+
+benchmarks:
+  - name: omp-cold-boot
+    exec: PI_TIMING=x PI_STRICT_EDIT_MODE=1 bun packages/coding-agent/src/cli.ts
+    options:
+      max-time: 30s

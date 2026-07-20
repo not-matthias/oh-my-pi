@@ -156,6 +156,7 @@
     "ci:release:publish": "bun scripts/ci-release-publish.ts",
     "ci:release:publish-native-leaf": "bun scripts/ci-release-publish.ts --native-leaf",
     "bench:gen-fixtures": "bun --cwd=packages/typescript-edit-benchmark run src/generate.ts --typescript-dir /tmp/typescript-source --count-per-type 8",
+    "bench:codspeed": "bun packages/coding-agent/bench/llm-assembly.codbench.ts && bun packages/coding-agent/bench/streaming-throughput.codbench.ts && bun packages/coding-agent/bench/transcript-compose.codbench.ts && bun packages/coding-agent/bench/session-tree-nav.codbench.ts && bun packages/tui/bench/fuzzy.codbench.ts && bun packages/tui/bench/parse-key.codbench.ts && bun packages/tui/bench/sanitize.codbench.ts && bun packages/tui/bench/text-layout.codbench.ts && bun packages/tui/bench/kitty-sequence.codbench.ts && bun packages/hashline/bench/recovery-session-chain.codbench.ts",
     "stats:sync": "python3 scripts/session-stats/sync.py",
     "stats:tools": "python3 scripts/session-stats/analyze.py tools",
     "stats:edits": "python3 scripts/session-stats/analyze.py edits",
@@ -198,10 +199,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@codspeed/core": "5.7.1",
+    "@codspeed/tinybench-plugin": "5.7.1",
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:",
     "lint-staged": "catalog:",
     "prettier": "catalog:",
+    "tinybench": "6.0.2",
     "ts-morph": "catalog:",
     "typescript": "catalog:"
   },

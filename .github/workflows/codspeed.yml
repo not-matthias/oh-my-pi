@@ -1,0 +1,51 @@
+# CodSpeed performance benchmarks.
+#
+# Two tracks, two jobs:
+# 1. tinybench micro-benchmarks — run INSIDE the CodSpeed action via `run:`
+#    so the walltime instrument can sample per-bench metrics.
+# 2. CLI exec: benchmarks (boot) — discovered from codspeed.yml by the action.
+#
+# Walltime mode is required because omp targets Bun/JavaScriptCore; CodSpeed's
+# default CPU-simulation instrument is V8-only and will not fire.
+
+name: CodSpeed
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Track 1: per-function micro-benchmarks via tinybench.
+  # The `run:` input wraps the bench command with CodSpeed instrumentation
+  # so per-bench.add() metrics are reported individually.
+  micro-benchmarks:
+    runs-on: codspeed-macro
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run build:native
+      - uses: CodSpeedHQ/action@v4
+        with:
+          mode: walltime
+          run: bun run bench:codspeed
+
+  # Track 2: whole-process wall-clock benchmarks (boot) via codspeed.yml exec:.
+  # The action discovers codspeed.yml at repo root and runs each exec: entry.
+  # No `run:` input — the action reads the config file instead.
+  cli-benchmarks:
+    runs-on: codspeed-macro
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run build:native
+      - uses: CodSpeedHQ/action@v4
+        with:
+          mode: walltime
