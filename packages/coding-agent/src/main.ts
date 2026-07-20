@@ -56,7 +56,7 @@ import type { ExtensionUIContext } from "./extensibility/extensions/types";
 import { scheduleMarketplaceAutoUpdate } from "./extensibility/plugins/marketplace-auto-update";
 import { registerDaemonProjectPresence } from "./launch/presence";
 import type { MCPManager } from "./mcp";
-import { InteractiveMode } from "./modes/interactive-mode";
+import type { InteractiveMode } from "./modes/interactive-mode";
 import type { PrintModeOptions } from "./modes/print-mode";
 import { claimRpcInput } from "./modes/rpc/rpc-input";
 import { CURRENT_SETUP_VERSION } from "./modes/setup-version";
@@ -423,6 +423,11 @@ async function runInteractiveMode(
 	initialImages?: ImageContent[],
 	joinLink?: string,
 ): Promise<void> {
+	// Lazy-load the 4715-line InteractiveMode module (and its 50+ transitive
+	// imports) only when the interactive branch actually runs. This keeps the
+	// module off the import graph for --print / --mode rpc / --mode acp paths
+	// and out of the PI_TIMING pre-paint measurement.
+	const { InteractiveMode } = await import("./modes/interactive-mode");
 	const mode = new InteractiveMode(
 		session,
 		version,
@@ -1095,18 +1100,21 @@ export async function runRootCommand(
 	logger.startTiming();
 	startStartupWatchdog();
 
-	// Initialize theme early with defaults (CLI commands need symbols)
-	// Will be re-initialized with user preferences later
-	await logger.time("initTheme:initial", initTheme);
+	// initTheme is deferred to the user-preferences call below (initTheme:final).
+	// The initial call only populated symbols for --version/--export, but those
+	// exit before rendering and don't need theme symbols.
 
 	const parsedArgs = parsed;
 	await logger.time("applyStartupCwd", applyStartupCwd, parsedArgs);
 
 	const notifs: (InteractiveModeNotify | null)[] = [];
 
-	// Create AuthStorage and ModelRegistry upfront
-	const authStorage = await logger.time("discoverAuthStorage", deps.discoverAuthStorage ?? discoverAuthStorage);
-	const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(authStorage));
+// Kick off Settings.init in parallel with discoverAuthStorage — it reads config
+// files + opens SQLite, independent of authStorage. For --version/--export the
+// process exits before the await, so the background work is harmless.
+const settingsPromise = logger.time("settings:init", Settings.init, { cwd: getProjectDir(), configFiles: parsedArgs.config });
+const authStorage = await logger.time("discoverAuthStorage", deps.discoverAuthStorage ?? discoverAuthStorage);
+const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(authStorage));
 
 	if (parsedArgs.version) {
 		writeStartupNotice(parsedArgs, `${VERSION}\n`);
@@ -1159,8 +1167,7 @@ export async function runRootCommand(
 	}
 
 	let cwd = getProjectDir();
-	const settingsInstance =
-		deps.settings ?? (await logger.time("settings:init", Settings.init, { cwd, configFiles: parsedArgs.config }));
+	const settingsInstance = deps.settings ?? (await settingsPromise);
 	if (parsedArgs.approvalMode) {
 		// Runtime override (not persisted): every settings.get("tools.approvalMode") downstream
 		// sees this value. The wrapper still honours --auto-approve / --yolo on top of it.
@@ -1360,7 +1367,9 @@ export async function runRootCommand(
 
 	await pluginPreloadPromise;
 	if (deps === DEFAULT_RUN_ROOT_DEPENDENCIES) {
-		await logger.time("registerDaemonProjectPresence", registerDaemonProjectPresence, cwd);
+		// Fire-and-forget: the presence file is only read by other omp processes
+		// for cross-process daemon liveness, so it doesn't need to block startup.
+		void registerDaemonProjectPresence(cwd);
 	}
 
 	scheduleMarketplaceAutoUpdate({
@@ -1551,7 +1560,9 @@ export async function runRootCommand(
 			await runRpcMode(session, mode === "rpc-ui" ? setToolUIContext : undefined, eventBus, rpcInput);
 		} else if (isInteractive) {
 			const versionCheckPromise = checkForNewVersion(VERSION).catch(() => undefined);
-			const changelogMarkdown = await logger.time("main:getChangelogForDisplay", getChangelogForDisplay, parsedArgs);
+			// Kick off changelog read in the background; await after PI_TIMING exit
+			// so it doesn't block the pre-paint measurement.
+			const changelogPromise = logger.time("main:getChangelogForDisplay", getChangelogForDisplay, parsedArgs);
 
 			const modelScopeNotification = buildModelScopeNotification(
 				scopedModels,
@@ -1570,6 +1581,7 @@ export async function runRootCommand(
 					process.exit(0);
 				}
 			}
+			const changelogMarkdown = await changelogPromise;
 
 			stopStartupWatchdog();
 			logger.endTiming();
