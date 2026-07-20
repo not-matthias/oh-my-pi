@@ -261,7 +261,12 @@ function sanitizeNeedsFrom(text: string, firstMatch: RegExpExecArray): string {
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
-const ITERATIONS = 2000;
+// Tuned for the tinybench harness: tinybench already re-iterates each task
+// (≥64 samples), so the inner count is a per-op amplification factor, not the
+// total iteration count. 2000 (the original makeBench count) × 7 samples × 64
+// tinybench samples exceeds the wall-clock budget; 100 keeps each op measurable
+// while finishing in a reasonable time.
+const ITERATIONS = 100;
 
 const bigPlain = "hello world ".repeat(500);
 const bigAnsi = ("\x1b[31mred\x1b[0m " + "lorem ipsum dolor ".repeat(20)).repeat(5);
