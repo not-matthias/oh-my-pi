@@ -70,52 +70,66 @@ export type { LaunchParams, LaunchToolDetails } from "./launch";
 export { createIrcMessageCard, isIrcEnabled } from "./messaging";
 export * from "./types";
 
-const hubSchema = type({
-	op: type(
-		"'send' | 'wait' | 'inbox' | 'list' | 'jobs' | 'cancel' | 'start' | 'ps' | 'logs' | 'stop' | 'restart' | 'describe'",
-	).describe("hub operation"),
-	"to?": type("string").describe('send: recipient agent id or "all"'),
-	"message?": type("string").describe("send: message body"),
-	"replyTo?": type("string").describe("send: message id being answered"),
-	"await?": type("boolean").describe('send: wait for the recipient\'s reply (invalid with to:"all")'),
-	"from?": type("string").describe("wait: only accept a message from this agent id"),
-	"ids?": type("string[]").describe("wait: job ids to watch (omit = all running jobs); cancel: job ids to kill"),
-	"timeoutMs?": type("number").describe("wait (messages/jobs): timeout in milliseconds (0 waits indefinitely)"),
-	"peek?": type("boolean").describe("inbox: list messages without consuming them"),
-	"name?": type("string <= 48").describe("process ops: stable project-scoped launch name"),
-	"application?": type("string > 0").describe("start: executable or application path"),
-	"args?": type("string[]").describe("start: argv passed directly to the application"),
-	"env?": type({ "[string]": "string" }).describe("start: extra environment variables"),
-	"cwd?": type("string").describe("start: working directory; defaults to the session directory"),
-	"pty?": type("boolean").describe("start: allocate an interactive PTY; default true"),
-	"ready?": type({
-		"log?": type("string > 0").describe("regex matched against output"),
-		"port?": type("number").describe("TCP port that must accept connections"),
-		"host?": type("string > 0").describe("TCP readiness host; default 127.0.0.1"),
-		"timeout?": type("number > 0").describe("seconds to wait; default 30"),
-	}).describe("start: readiness conditions; all supplied conditions must pass"),
-	"restart?": type("'no' | 'on-failure' | 'always'").describe("start: restart policy; default no"),
-	"persist?": type("boolean").describe("start: survive the last omp client exiting; default false"),
-	"detached?": type("boolean").describe(
-		"start: survive every omp and broker exit; implies persist and disables PTY input",
-	),
-	"lines?": type("number > 0").describe("logs: output lines; default 100, max 1000"),
-	"head?": type("boolean").describe("logs: read from the beginning instead of the tail"),
-	"grep?": type("string > 0").describe("logs: regex filter"),
-	"follow?": type("boolean").describe("logs: wait for output newer than cursor"),
-	"cursor?": type("number >= 0").describe("logs: output cursor returned by an earlier call"),
-	"for?": type("'ready' | 'exit'").describe("wait with name: lifecycle condition; default exit"),
-	"pattern?": type("string > 0").describe("wait with name: output regex; takes precedence over for"),
-	"text?": type("string > 0").describe("send with name: stdin text"),
-	"enter?": type("boolean").describe("send with name: append Enter after text; default true"),
-	"keys?": type("string[]").describe("send with name: terminal keys after text"),
-	"signal?": type("'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'SIGQUIT' | 'SIGKILL'").describe(
-		"send with name: process-tree signal",
-	),
-	"timeout?": type("number > 0").describe("logs/stop/wait with name: max seconds; default 30 (stop: 5)"),
-});
+// Lazily constructed and memoized: ArkType JIT-compiles the ~40-field schema at
+// definition time (~43ms), pure startup tax for a tool that may never be invoked
+// this session. Deferring to the first HubTool.parameters read moves it off the
+// startup critical path. Kept JIT (not jitless): this schema validates args on
+// every hub call, so compiled traversal stays faster per call than interpreted
+// (unlike config schemas, validated once at load).
+let _hubSchema: HubSchema | undefined;
+function hubSchema() {
+	if (!_hubSchema) _hubSchema = makeHubSchema();
+	return _hubSchema;
+}
+function makeHubSchema() {
+	return type({
+		op: type(
+			"'send' | 'wait' | 'inbox' | 'list' | 'jobs' | 'cancel' | 'start' | 'ps' | 'logs' | 'stop' | 'restart' | 'describe'",
+		).describe("hub operation"),
+		"to?": type("string").describe('send: recipient agent id or "all"'),
+		"message?": type("string").describe("send: message body"),
+		"replyTo?": type("string").describe("send: message id being answered"),
+		"await?": type("boolean").describe('send: wait for the recipient\'s reply (invalid with to:"all")'),
+		"from?": type("string").describe("wait: only accept a message from this agent id"),
+		"ids?": type("string[]").describe("wait: job ids to watch (omit = all running jobs); cancel: job ids to kill"),
+		"timeoutMs?": type("number").describe("wait (messages/jobs): timeout in milliseconds (0 waits indefinitely)"),
+		"peek?": type("boolean").describe("inbox: list messages without consuming them"),
+		"name?": type("string <= 48").describe("process ops: stable project-scoped launch name"),
+		"application?": type("string > 0").describe("start: executable or application path"),
+		"args?": type("string[]").describe("start: argv passed directly to the application"),
+		"env?": type({ "[string]": "string" }).describe("start: extra environment variables"),
+		"cwd?": type("string").describe("start: working directory; defaults to the session directory"),
+		"pty?": type("boolean").describe("start: allocate an interactive PTY; default true"),
+		"ready?": type({
+			"log?": type("string > 0").describe("regex matched against output"),
+			"port?": type("number").describe("TCP port that must accept connections"),
+			"host?": type("string > 0").describe("TCP readiness host; default 127.0.0.1"),
+			"timeout?": type("number > 0").describe("seconds to wait; default 30"),
+		}).describe("start: readiness conditions; all supplied conditions must pass"),
+		"restart?": type("'no' | 'on-failure' | 'always'").describe("start: restart policy; default no"),
+		"persist?": type("boolean").describe("start: survive the last omp client exiting; default false"),
+		"detached?": type("boolean").describe(
+			"start: survive every omp and broker exit; implies persist and disables PTY input",
+		),
+		"lines?": type("number > 0").describe("logs: output lines; default 100, max 1000"),
+		"head?": type("boolean").describe("logs: read from the beginning instead of the tail"),
+		"grep?": type("string > 0").describe("logs: regex filter"),
+		"follow?": type("boolean").describe("logs: wait for output newer than cursor"),
+		"cursor?": type("number >= 0").describe("logs: output cursor returned by an earlier call"),
+		"for?": type("'ready' | 'exit'").describe("wait with name: lifecycle condition; default exit"),
+		"pattern?": type("string > 0").describe("wait with name: output regex; takes precedence over for"),
+		"text?": type("string > 0").describe("send with name: stdin text"),
+		"enter?": type("boolean").describe("send with name: append Enter after text; default true"),
+		"keys?": type("string[]").describe("send with name: terminal keys after text"),
+		"signal?": type("'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'SIGQUIT' | 'SIGKILL'").describe(
+			"send with name: process-tree signal",
+		),
+		"timeout?": type("number > 0").describe("logs/stop/wait with name: max seconds; default 30 (stop: 5)"),
+	});
+}
 
-type HubParams = typeof hubSchema.infer;
+type HubSchema = ReturnType<typeof makeHubSchema>;
+type HubParams = HubSchema["infer"];
 
 interface MessagingDeps {
 	registry: AgentRegistry;
@@ -151,13 +165,17 @@ function hubApproval(params: unknown): ToolApprovalDecision {
 	}
 }
 
-export class HubTool implements AgentTool<typeof hubSchema, HubDetails> {
+export class HubTool implements AgentTool<HubSchema, HubDetails> {
 	readonly name = "hub";
 	readonly approval = hubApproval;
 	readonly label = "Hub";
 	readonly summary = "Message peer agents, control background jobs, and supervise long-running processes";
 	readonly description: string;
-	readonly parameters = hubSchema;
+	#parameters: HubSchema | undefined;
+	get parameters() {
+		if (!this.#parameters) this.#parameters = hubSchema();
+		return this.#parameters;
+	}
 	readonly strict = true;
 	readonly interruptible = (params: Partial<HubParams>): boolean => {
 		if (params.op === "wait") return true;
@@ -165,7 +183,7 @@ export class HubTool implements AgentTool<typeof hubSchema, HubDetails> {
 	};
 	readonly loadMode = "essential";
 
-	readonly examples: readonly ToolExample<typeof hubSchema.infer>[] = [
+	readonly examples: readonly ToolExample<HubParams>[] = [
 		{
 			caption: "List peers",
 			call: { op: "list" },
