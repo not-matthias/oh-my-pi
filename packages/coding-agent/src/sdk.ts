@@ -35,7 +35,6 @@ import {
 } from "./advisor";
 import { AsyncJobManager } from "./async";
 import { AutoLearnController, buildAutoLearnInstructions } from "./autolearn/controller";
-import { createAutoresearchExtension } from "./autoresearch";
 import { loadCapability } from "./capability";
 import { type Rule, ruleCapability, setActiveRules } from "./capability/rule";
 import { bucketRules } from "./capability/rule-buckets";
@@ -1901,6 +1900,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			}
 
 			inlineExtensions.push(...(options.extensions ?? []));
+			// Lazy-load the autoresearch extension: the ~14-module subtree
+			// (dashboard, git, helpers, state, storage, 4 tool factories,
+			// types, and 4 .md templates) is only needed when the autoresearch
+			// extension is actually active — not on every startup. Dynamic
+			// import keeps it off the startup module-load hot path.
+			// (AGENTS.md forbids inline imports generally, but branch-only
+			// dynamic imports are the established pattern here — see rpc-mode,
+			// print-mode, export/html, setup-wizard — because a static import
+			// would eagerly pull the whole subtree into every startup.)
+			const { createAutoresearchExtension } = await import("./autoresearch");
 			inlineExtensions.push(createAutoresearchExtension);
 			if (customTools.length > 0) {
 				inlineExtensions.push(createCustomToolsExtension(customTools));
