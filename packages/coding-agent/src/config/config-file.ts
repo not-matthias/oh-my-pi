@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAgentDir, isEnoent, logger } from "@oh-my-pi/pi-utils";
-import { ArkErrors, type Type } from "arktype";
+import { ArkErrors, Type } from "arktype";
 import { JSONC, YAML } from "bun";
 
 /** Minimal subset of the AJV ConfigSchemaError shape this module actually relies on. */
@@ -127,12 +127,14 @@ export class ConfigFile<T> implements IConfigFile<T> {
 	readonly #jsonMigrationPath: string | null;
 	#cache?: LoadResult<T>;
 	#auxValidate?: (value: T) => void;
+	readonly #schemaProvider: Type | (() => Type);
 
 	constructor(
 		readonly id: string,
-		readonly schema: Type,
+		schema: Type | (() => Type),
 		configPath: string = path.join(getAgentDir(), `${id}.yml`),
 	) {
+		this.#schemaProvider = schema;
 		this.#basePath = configPath;
 		if (configPath.endsWith(".yml")) {
 			this.#yamlFallbackPath = `${configPath.slice(0, -4)}.yaml`;
@@ -150,6 +152,15 @@ export class ConfigFile<T> implements IConfigFile<T> {
 		}
 	}
 
+	// Lazily resolve a factory-supplied schema so the expensive schema graph is
+	// not constructed until load()/createDefault(). ArkType `Type` instances are
+	// callable (typeof === "function"), so discriminate via `instanceof Type`
+	// rather than `typeof`.
+	get schema(): Type {
+		const provider = this.#schemaProvider;
+		return provider instanceof Type ? provider : provider();
+	}
+
 	/**
 	 * Run the JSON → YAML migration synchronously, if applicable. Idempotent.
 	 * Sync callers (tests, settings init) hit this implicitly via {@link tryLoad}.
@@ -164,7 +175,7 @@ export class ConfigFile<T> implements IConfigFile<T> {
 
 	relocate(configPath?: string): ConfigFile<T> {
 		if (!configPath || configPath === this.#basePath) return this;
-		const result = new ConfigFile<T>(this.id, this.schema, configPath);
+		const result = new ConfigFile<T>(this.id, this.#schemaProvider, configPath);
 		result.#auxValidate = this.#auxValidate;
 		result.#ensureMigrated();
 		return result;
