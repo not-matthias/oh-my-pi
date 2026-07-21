@@ -7,6 +7,11 @@
 #
 # Walltime mode is required because omp targets Bun/JavaScriptCore; CodSpeed's
 # default CPU-simulation instrument is V8-only and will not fire.
+#
+# PREREQUISITE: codspeed-macro runners require the CodSpeed GitHub app
+# installed on the repo's org/account. If not installed, jobs sit permanently
+# queued. Install at https://github.com/apps/codspeed or switch runs-on to
+# ubuntu-latest (walltime works on standard runners, just with more variance).
 
 name: CodSpeed
 
