@@ -246,20 +246,36 @@ async function saveGpuCache(info: GpuCache): Promise<void> {
 	}
 }
 
+// GPU model is process-constant — cache to avoid re-reading the cache file
+// (or re-probing) on every buildSystemPrompt call.
+let _gpu: string | null | undefined;
+
 async function getCachedGpu(): Promise<string | undefined> {
+	if (_gpu !== undefined) return _gpu ?? undefined;
 	const cached = await logger.time("getCachedGpu:loadGpuCache", loadGpuCache);
-	if (cached) return cached.gpu ?? undefined;
+	if (cached) {
+		_gpu = cached.gpu ?? null;
+		return cached.gpu ?? undefined;
+	}
 	const gpu = await logger.time("getCachedGpu:getGpuModel", getGpuModel);
 	await logger.time("getCachedGpu:saveGpuCache", saveGpuCache, { gpu });
+	_gpu = gpu ?? null;
 	return gpu ?? undefined;
 }
 
+// CPU model is process-constant — cache the Linux /proc/cpuinfo read to avoid
+// re-reading on every buildSystemPrompt call.
+let _cpuModel: string | null | undefined;
+
 async function getCpuModel(): Promise<string | undefined> {
 	if (process.platform !== "linux") return os.cpus()[0]?.model;
+	if (_cpuModel !== undefined) return _cpuModel ?? undefined;
 	try {
 		const cpuInfo = await Bun.file("/proc/cpuinfo").text();
 		const match = /^model name\s*:\s*(.+)$/m.exec(cpuInfo);
-		return match?.[1]?.trim() || undefined;
+		const result = match?.[1]?.trim() || undefined;
+		_cpuModel = result ?? null;
+		return result;
 	} catch (error) {
 		if (!isEnoent(error)) {
 			logger.debug("Could not read Linux CPU model", { error: String(error) });
