@@ -1,19 +1,16 @@
 # CodSpeed performance benchmarks.
 #
-# Two tracks × two modes:
+# Three tracks:
 # 1. tinybench micro-benchmarks — run INSIDE the CodSpeed action via `run:`
-#    so per-bench.add() metrics are reported individually.
+#    so the walltime instrument can sample per-bench metrics.
 # 2. CLI exec: benchmarks (boot) — discovered from codspeed.yml by the action.
+# 3. Rust crate benchmarks — via cargo-codspeed in simulation mode.
 #
-# Modes:
-#   walltime   — wall-clock sampling; required for Bun/JavaScriptCore since
-#                CodSpeed's CPU-simulation instrument is V8-only.
-#   simulation — CPU simulation; expected to no-op on Bun but tried anyway
-#                (continue-on-error) so we notice if CodSpeed adds JSC support.
+# Walltime mode is required for TS/Bun since CodSpeed's CPU-simulation
+# instrument is V8-only. Rust benches use simulation (works on compiled code).
 #
 # Caching: Bun store + Rust target/ + sccache mirror the setup in
-# .github/actions/build-native so PRs restore from main's warm cache.
-# save-if restricts writes to main pushes so PR runs don't pollute the cache.
+# .github/actions/build-native. save-if restricts cache writes to main.
 
 name: CodSpeed
 
@@ -23,19 +20,24 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: codspeed-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # Track 1: per-function micro-benchmarks via tinybench.
-  # The `run:` input wraps the bench command with CodSpeed instrumentation
-  # so per-bench.add() metrics are reported individually.
   micro-benchmarks:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [walltime, simulation]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/bun-install
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+      - run: bun install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2026-04-29
@@ -53,25 +55,23 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
       - run: bun run build:native
       - uses: CodSpeedHQ/action@v4
-        continue-on-error: ${{ matrix.mode == 'simulation' }}
         with:
-          mode: ${{ matrix.mode }}
+          mode: walltime
           run: bun run bench:codspeed
-        env:
-          CODSPEED_WALLTIME_PROFILER: samply
 
-  # Track 2: whole-process wall-clock benchmarks (boot) via codspeed.yml exec:.
-  # The action discovers codspeed.yml at repo root and runs each exec: entry.
-  # No `run:` input — the action reads the config file instead.
   cli-benchmarks:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [walltime, simulation]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/bun-install
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+      - run: bun install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2026-04-29
@@ -89,17 +89,12 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
       - run: bun run build:native
       - uses: CodSpeedHQ/action@v4
-        continue-on-error: ${{ matrix.mode == 'simulation' }}
         with:
-          mode: ${{ matrix.mode }}
-        env:
-          CODSPEED_WALLTIME_PROFILER: samply
+          mode: walltime
 
-  # Track 3: Rust crate benchmarks via cargo-codspeed (criterion compat).
-  # Benches live in crates/pi-walker/benches/ and crates/pi-ast/benches/.
-  # No Bun needed — pure Rust.
   rust-benchmarks:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
