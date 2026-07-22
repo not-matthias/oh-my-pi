@@ -376,96 +376,96 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	read: s => new ReadTool(s),
 	bash: s => new BashTool(s),
 	edit: s => new EditTool(s),
-	ast_grep: async (s) => {
+	ast_grep: async s => {
 		const { AstGrepTool } = await import("./ast-grep");
 		return new AstGrepTool(s);
 	},
-	ast_edit: async (s) => {
+	ast_edit: async s => {
 		const { AstEditTool } = await import("./ast-edit");
 		return new AstEditTool(s);
 	},
-	ask: async (s) => {
+	ask: async s => {
 		const { AskTool } = await import("./ask");
 		return AskTool.createIf(s);
 	},
-	debug: async (s) => {
+	debug: async s => {
 		const { DebugTool } = await import("./debug");
 		return DebugTool.createIf(s);
 	},
-	eval: async (s) => {
+	eval: async s => {
 		const { EvalTool } = await import("./eval");
 		return new EvalTool(s);
 	},
-	github: async (s) => {
+	github: async s => {
 		const { GithubTool } = await import("./gh");
 		return GithubTool.createIf(s);
 	},
 	glob: s => new GlobTool(s, { rootPathAlias: true }),
 	grep: s => new GrepTool(s),
-	lsp: async (s) => {
+	lsp: async s => {
 		const { LspTool } = await import("../lsp");
 		return LspTool.createIf(s);
 	},
-	inspect_image: async (s) => {
+	inspect_image: async s => {
 		const { InspectImageTool } = await import("./inspect-image");
 		return new InspectImageTool(s);
 	},
-	browser: async (s) => {
+	browser: async s => {
 		const { BrowserTool } = await import("./browser");
 		return new BrowserTool(s);
 	},
-	computer: async (s) => {
+	computer: async s => {
 		const { ComputerTool } = await import("./computer");
 		return new ComputerTool(s);
 	},
-	checkpoint: async (s) => {
+	checkpoint: async s => {
 		const { CheckpointTool } = await import("./checkpoint");
 		return CheckpointTool.createIf(s);
 	},
-	rewind: async (s) => {
+	rewind: async s => {
 		const { RewindTool } = await import("./checkpoint");
 		return RewindTool.createIf(s);
 	},
 	task: s => TaskTool.create(s),
 	hub: s => new HubTool(s),
-	todo: async (s) => {
+	todo: async s => {
 		const { TodoTool } = await import("./todo");
 		return new TodoTool(s);
 	},
 	web_search: s => new WebSearchTool(s),
 	write: s => new WriteTool(s),
-	memory_edit: async (s) => {
+	memory_edit: async s => {
 		const { MemoryEditTool } = await import("./memory-edit");
 		return MemoryEditTool.createIf(s);
 	},
-	retain: async (s) => {
+	retain: async s => {
 		const { MemoryRetainTool } = await import("./memory-retain");
 		return MemoryRetainTool.createIf(s);
 	},
-	recall: async (s) => {
+	recall: async s => {
 		const { MemoryRecallTool } = await import("./memory-recall");
 		return MemoryRecallTool.createIf(s);
 	},
-	reflect: async (s) => {
+	reflect: async s => {
 		const { MemoryReflectTool } = await import("./memory-reflect");
 		return MemoryReflectTool.createIf(s);
 	},
-	learn: async (s) => {
+	learn: async s => {
 		const { LearnTool } = await import("./learn");
 		return LearnTool.createIf(s);
 	},
-	manage_skill: async (s) => {
+	manage_skill: async s => {
 		const { ManageSkillTool } = await import("./manage-skill");
 		return ManageSkillTool.createIf(s);
 	},
 };
 
 export const HIDDEN_TOOLS: Record<HiddenToolName, ToolFactory> = {
-	yield: async (s) => {
+	yield: async s => {
 		const { YieldTool } = await import("./yield");
 		return new YieldTool(s);
 	},
-	goal: async (s) => {
+	goal: async s => {
 		const { GoalTool } = await import("../goals/tools/goal-tool");
 		return new GoalTool(s);
 	},
