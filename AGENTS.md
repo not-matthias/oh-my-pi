@@ -239,6 +239,32 @@ Test the contract the system exposes — not the easiest internal detail to asse
 - Don't add tests for tiny low-risk changes unless they protect a real contract or fix a regression-prone edge case.
 - Prefer focused package-local verification for the changed area.
 
+## Startup Timing & Profiling
+
+Profile omp's startup with `PI_TIMING` (full table in `docs/environment-variables.md`):
+
+- `PI_TIMING=x` — prints the hierarchical span tree to stderr, then exits 0 (terminates instead of launching the TUI, so the boot is benchmarkable).
+- `PI_TIMING=full` — adds a per-module load report; requires `--preload ../utils/src/module-timer.ts` (`bun dev:timing` and the `scripts/omp` wrapper add it automatically).
+- `PI_DEBUG_STARTUP` — streaming `[startup] <phase>:start/:done` markers; unlike `PI_TIMING` it survives a hard hang, naming the phase the process is stuck in.
+
+### Quick measurement
+
+```bash
+# 3 warmup runs (discard), then one measured run:
+for i in 1 2 3; do PI_TIMING=x PI_STRICT_EDIT_MODE=1 omp >/dev/null 2>&1; done
+PI_TIMING=x PI_STRICT_EDIT_MODE=1 omp 2>&1 | head -60
+```
+
+`PI_STRICT_EDIT_MODE=1` skips edit-mode side effects for a clean benchmark.
+
+### Reading the output
+
+- `(before instrumentation)` = Bun runtime init + static module load (excluded from `Total`).
+- `Total` = sum of instrumented spans; wall-clock ≈ `(before instrumentation)` + `Total`.
+- `[parallel]` children overlap — the parent's duration is the roof, not the sum.
+
+For regression guarding, `packages/coding-agent/scripts/bench-guard.ts` wraps hyperfine against a stored baseline (local-only, machine-relative; not CI).
+
 ## Changelog
 
 Location: `packages/*/CHANGELOG.md` (per package).
