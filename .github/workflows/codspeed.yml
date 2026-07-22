@@ -94,3 +94,34 @@ jobs:
           mode: ${{ matrix.mode }}
         env:
           CODSPEED_WALLTIME_PROFILER: samply
+
+  # Track 3: Rust crate benchmarks via cargo-codspeed (criterion compat).
+  # Benches live in crates/pi-walker/benches/ and crates/pi-ast/benches/.
+  # No Bun needed — pure Rust.
+  rust-benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-04-29
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: codspeed-rust-${{ hashFiles('crates/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml') }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-codspeed
+      - run: cargo codspeed build
+      - uses: CodSpeedHQ/action@v4
+        with:
+          mode: simulation
+          run: cargo codspeed run
