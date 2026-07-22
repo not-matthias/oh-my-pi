@@ -13,6 +13,6 @@
 
 benchmarks:
   - name: omp-cold-boot
-    exec: PI_TIMING=x PI_STRICT_EDIT_MODE=1 bun packages/coding-agent/src/cli.ts
+    exec: bun packages/coding-agent/src/cli.ts
     options:
       max-time: 30s

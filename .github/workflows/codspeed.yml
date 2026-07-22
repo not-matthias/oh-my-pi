@@ -97,6 +97,8 @@ jobs:
           mode: walltime
         env:
           CODSPEED_WALLTIME_PROFILER: samply
+          PI_TIMING: x
+          PI_STRICT_EDIT_MODE: "1"
 
   rust-benchmarks:
     runs-on: ubuntu-latest
