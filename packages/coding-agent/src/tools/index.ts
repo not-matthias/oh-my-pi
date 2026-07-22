@@ -7,9 +7,6 @@ import type { Rule } from "../capability/rule";
 import type { PromptTemplate } from "../config/prompt-templates";
 import type { Settings } from "../config/settings";
 import { EditTool } from "../edit";
-import { checkJuliaKernelAvailability } from "../eval/jl/kernel";
-import { checkPythonKernelAvailability } from "../eval/py/kernel";
-import { checkRubyKernelAvailability } from "../eval/rb/kernel";
 import type { ToolPathWithSource } from "../extensibility/custom-tools";
 import type { Skill } from "../extensibility/skills";
 import type { GoalModeState, GoalRuntime } from "../goals";
@@ -504,6 +501,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	const evalRequested = requestedTools === undefined || requestedTools.includes("eval");
 	if (!skipEvalPreflight && !allowJs && evalRequested) {
 		if (allowPython) {
+			const { checkPythonKernelAvailability } = await import("../eval/py/kernel");
 			const availability = await logger.time(
 				"createTools:pythonCheck",
 				checkPythonKernelAvailability,
@@ -516,6 +514,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			}
 		}
 		if (allowRuby) {
+			const { checkRubyKernelAvailability } = await import("../eval/rb/kernel");
 			const availability = await checkRubyKernelAvailability(
 				session.cwd,
 				session.settings.get("ruby.interpreter")?.trim() || undefined,
@@ -526,6 +525,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			}
 		}
 		if (allowJulia) {
+			const { checkJuliaKernelAvailability } = await import("../eval/jl/kernel");
 			const availability = await checkJuliaKernelAvailability(
 				session.cwd,
 				session.settings.get("julia.interpreter")?.trim() || undefined,
