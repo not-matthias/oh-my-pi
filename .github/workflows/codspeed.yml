@@ -58,6 +58,8 @@ jobs:
         with:
           mode: walltime
           run: bun run bench:codspeed
+        env:
+          CODSPEED_WALLTIME_PROFILER: samply
 
   cli-benchmarks:
     runs-on: ubuntu-latest
@@ -91,6 +93,8 @@ jobs:
       - uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
+        env:
+          CODSPEED_WALLTIME_PROFILER: samply
 
   rust-benchmarks:
     runs-on: ubuntu-latest
