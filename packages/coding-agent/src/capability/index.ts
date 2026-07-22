@@ -45,11 +45,13 @@ let settings: Settings | null = null;
 /**
  * Lazy module loaders — provider modules whose import side-effects
  * (registerProvider calls) are deferred until the capability system is
- * actually exercised. See `registerLazyModule` / `ensureLazyModulesLoaded`.
- * Concurrent first callers all await the same in-flight promise.
+ * actually exercised. Each loader is annotated with the capability IDs it
+ * provides so that `ensureLazyModulesLoaded(capability)` only imports the
+ * relevant modules instead of all of them.
  */
-const lazyModuleLoaders: Array<() => Promise<unknown>> = [];
-let lazyModulesPromise: Promise<void> | null = null;
+const lazyModuleLoaders: Array<{ loader: () => Promise<unknown>; capabilities: string[] | undefined }> = [];
+/** Per-module load state (index → in-flight / settled promise). */
+const lazyModuleState = new Map<number, Promise<void>>();
 
 // =============================================================================
 // Registration API
@@ -101,33 +103,46 @@ export function registerProvider<T>(capabilityId: string, provider: Provider<T>)
 }
 
 /**
- * Register a lazy module loader. The loader is invoked once, immediately
- * before the first `loadCapability()` call, so the module's import
- * side-effects (its own `registerProvider` calls) run just-in-time instead of
- * at `discovery/index.ts` module-load time. This defers the heavy transitive
+ * Register a lazy module loader. The loader is invoked on the first
+ * `loadCapability()` call for one of the capabilities this module
+ * provides, so the module's import side-effects (its own
+ * `registerProvider` calls) run just-in-time instead of at
+ * `discovery/index.ts` module-load time. This defers the heavy transitive
  * import chains of provider modules (codex, claude-plugins, cursor, …) out
  * of the startup path entirely.
+ *
+ * @param capabilities Capability IDs this module registers providers for.
+ * When omitted, the module loads on the first `loadCapability()` call
+ * regardless of which capability is requested (preserves the old behavior).
  */
-export function registerLazyModule(loader: () => Promise<unknown>): void {
-	if (lazyModulesPromise === null) {
-		lazyModuleLoaders.push(loader);
-	}
-	// Once loading has begun, additional registrations are a no-op: the
-	// provider is expected to be loaded already or not at all.
+export function registerLazyModule(loader: () => Promise<unknown>, capabilities?: string[]): void {
+	lazyModuleLoaders.push({ loader, capabilities });
 }
 
 /**
- * Run all pending lazy module loaders exactly once. Concurrent callers share
- * the same in-flight promise. After the first completion, subsequent calls
- * resolve immediately (loaders list is drained).
+ * Load lazy modules relevant to the requested capability. Each module is
+ * loaded at most once (cached in `lazyModuleState`). Concurrent callers for
+ * the same capability share in-flight promises. Modules whose
+ * `capabilities` list does not include the requested capability are skipped
+ * — e.g. `loadCapability("settings")` only loads the 5 lazy providers that
+ * register a settings provider, not all 14.
  */
-async function ensureLazyModulesLoaded(): Promise<void> {
-	if (lazyModulesPromise !== null) return lazyModulesPromise;
-	const loaders = lazyModuleLoaders.splice(0);
-	lazyModulesPromise = (async () => {
-		await Promise.all(loaders.map(loader => loader()));
-	})();
-	return lazyModulesPromise;
+async function ensureLazyModulesLoaded(capability?: string): Promise<void> {
+	const promises: Promise<void>[] = [];
+	for (let i = 0; i < lazyModuleLoaders.length; i++) {
+		const m = lazyModuleLoaders[i];
+		// Skip modules that don't provide the requested capability.
+		if (capability && m.capabilities && !m.capabilities.includes(capability)) continue;
+		// Load each module at most once (cached via the Map).
+		if (!lazyModuleState.has(i)) {
+			lazyModuleState.set(i, m.loader().then(
+				() => {},
+				() => {},
+			));
+		}
+		promises.push(lazyModuleState.get(i)!);
+	}
+	if (promises.length > 0) await Promise.all(promises);
 }
 
 // =============================================================================
@@ -269,7 +284,7 @@ export async function loadCapability<T>(capabilityId: string, options: LoadOptio
 	// Load deferred provider modules before snapshotting the providers list.
 	// Lazy providers self-register on import; without this, a loadCapability()
 	// call before first use would miss their entries.
-	await ensureLazyModulesLoaded();
+	await ensureLazyModulesLoaded(capabilityId);
 	if (!capability) {
 		throw new Error(`Unknown capability: "${capabilityId}"`);
 	}
