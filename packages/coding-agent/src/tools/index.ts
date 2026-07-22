@@ -12,7 +12,6 @@ import type { Skill } from "../extensibility/skills";
 import type { GoalModeState, GoalRuntime } from "../goals";
 import type { HindsightSessionState } from "../hindsight/state";
 import type { LocalProtocolOptions } from "../internal-urls";
-import { LspTool } from "../lsp";
 import type { MCPManager } from "../mcp";
 import type { MnemopiSessionState } from "../mnemopi/state";
 import type { PlanModeState } from "../plan-mode/state";
@@ -33,7 +32,6 @@ import type { WorkspaceTree } from "../workspace-tree";
 import { BashTool } from "./bash";
 import { type BuiltinToolName, type HiddenToolName, normalizeToolNames } from "./builtin-names";
 import type { CheckpointState, CompletedRewindState } from "./checkpoint";
-import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
 import { GlobTool } from "./glob";
 import { GrepTool } from "./grep";
@@ -47,7 +45,7 @@ import { isMountableUnderXdev, XdevRegistry } from "./xdev";
 
 export * from "../edit";
 export type * from "../goals";
-export * from "../lsp";
+export type * from "../lsp";
 export * from "../session/streaming-output";
 export * from "../task";
 export * from "../web/search";
@@ -61,7 +59,7 @@ export type * from "./computer";
 export type * from "./computer/supervisor";
 export type * from "./debug";
 export * from "./essential-tools";
-export * from "./eval";
+export type * from "./eval";
 export * from "./eval-backends";
 export type * from "./gh";
 export * from "./glob";
@@ -394,14 +392,20 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 		const { DebugTool } = await import("./debug");
 		return DebugTool.createIf(s);
 	},
-	eval: s => new EvalTool(s),
+	eval: async (s) => {
+		const { EvalTool } = await import("./eval");
+		return new EvalTool(s);
+	},
 	github: async (s) => {
 		const { GithubTool } = await import("./gh");
 		return GithubTool.createIf(s);
 	},
 	glob: s => new GlobTool(s, { rootPathAlias: true }),
 	grep: s => new GrepTool(s),
-	lsp: LspTool.createIf,
+	lsp: async (s) => {
+		const { LspTool } = await import("../lsp");
+		return LspTool.createIf(s);
+	},
 	inspect_image: async (s) => {
 		const { InspectImageTool } = await import("./inspect-image");
 		return new InspectImageTool(s);

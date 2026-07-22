@@ -176,9 +176,7 @@ import {
 	createVibeTools,
 	type DeferredDiagnosticsEntry,
 	defaultLoadModeForToolName,
-	discoverStartupLspServers,
 	EditTool,
-	EvalTool,
 	GlobTool,
 	GrepTool,
 	getSearchTools,
@@ -191,7 +189,6 @@ import {
 	type ToolSession,
 	WebSearchTool,
 	WriteTool,
-	warmupLspServers,
 } from "./tools";
 import { isMCPToolName, normalizeToolNames } from "./tools/builtin-names";
 import { ToolContextStore } from "./tools/context";
@@ -605,7 +602,6 @@ export {
 	BUILTIN_TOOLS,
 	createTools,
 	EditTool,
-	EvalTool,
 	GlobTool,
 	GrepTool,
 	HIDDEN_TOOLS,
@@ -3287,41 +3283,44 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// CPU parsing big `initialize` responses concurrently with the LLM stream consumer, jittering
 		// perceived latency.
 		let lspServers: CreateAgentSessionResult["lspServers"];
-		if (enableLsp && options.hasUI && settings.get("lsp.lazy")) {
-			lspServers = discoverStartupLspServers(cwd, "available");
-		} else if (enableLsp && options.hasUI) {
-			lspServers = discoverStartupLspServers(cwd);
-			if (lspServers.length > 0) {
-				void (async () => {
-					try {
-						const result = await logger.time("warmupLspServers", warmupLspServers, cwd);
-						const serversByName = new Map(result.servers.map(server => [server.name, server] as const));
-						for (const server of lspServers ?? []) {
-							const next = serversByName.get(server.name);
-							if (!next) continue;
-							server.status = next.status;
-							server.fileTypes = next.fileTypes;
-							server.error = next.error;
+		if (enableLsp && options.hasUI) {
+			const { discoverStartupLspServers, warmupLspServers } = await import("./lsp");
+			if (settings.get("lsp.lazy")) {
+				lspServers = discoverStartupLspServers(cwd, "available");
+			} else {
+				lspServers = discoverStartupLspServers(cwd);
+				if (lspServers.length > 0) {
+					void (async () => {
+						try {
+							const result = await logger.time("warmupLspServers", warmupLspServers, cwd);
+							const serversByName = new Map(result.servers.map(server => [server.name, server] as const));
+							for (const server of lspServers ?? []) {
+								const next = serversByName.get(server.name);
+								if (!next) continue;
+								server.status = next.status;
+								server.fileTypes = next.fileTypes;
+								server.error = next.error;
+							}
+							const event: LspStartupEvent = {
+								type: "completed",
+								servers: result.servers,
+							};
+							if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
+						} catch (error) {
+							const errorMessage = error instanceof Error ? error.message : String(error);
+							logger.warn("LSP server warmup failed", { cwd, error: errorMessage });
+							for (const server of lspServers ?? []) {
+								server.status = "error";
+								server.error = errorMessage;
+							}
+							const event: LspStartupEvent = {
+								type: "failed",
+								error: errorMessage,
+							};
+							if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
 						}
-						const event: LspStartupEvent = {
-							type: "completed",
-							servers: result.servers,
-						};
-						if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
-					} catch (error) {
-						const errorMessage = error instanceof Error ? error.message : String(error);
-						logger.warn("LSP server warmup failed", { cwd, error: errorMessage });
-						for (const server of lspServers ?? []) {
-							server.status = "error";
-							server.error = errorMessage;
-						}
-						const event: LspStartupEvent = {
-							type: "failed",
-							error: errorMessage,
-						};
-						if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
-					}
-				})();
+					})();
+				}
 			}
 		}
 
