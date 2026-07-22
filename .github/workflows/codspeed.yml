@@ -90,10 +90,11 @@ jobs:
           echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
           echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
       - run: bun run build:native
+      - name: Symlink bun to system PATH for CodSpeed exec harness
+        run: sudo ln -sf "$(which bun)" /usr/local/bin/bun
       - uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
-          run: PI_TIMING=x PI_STRICT_EDIT_MODE=1 bun packages/coding-agent/src/cli.ts
         env:
           CODSPEED_WALLTIME_PROFILER: samply
 
