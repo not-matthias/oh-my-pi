@@ -93,6 +93,7 @@ jobs:
       - uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
+          run: PI_TIMING=x PI_STRICT_EDIT_MODE=1 bun packages/coding-agent/src/cli.ts
         env:
           CODSPEED_WALLTIME_PROFILER: samply
 
