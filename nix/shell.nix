@@ -1,8 +1,7 @@
-# Development shell with everything needed to build the omp linux binary
-# interactively: `nix develop` then
-#   bun install --frozen-lockfile
-#   bun --cwd=packages/natives run build      # compiles the pi-natives .node
-#   bun --cwd=packages/coding-agent run build # gen:* + Bun.build --compile
+# Development shell for working on omp: bun install / test / edit. The bun here
+# is the autoPatchelf'd ompBun — fine for everything EXCEPT `--compile` (its
+# compiled output segfaults; see nix/omp.nix). To build the linux binary, use
+# `nix build .#omp` (runs the unmodified raw bun inside a buildFHSEnv).
 {
   lib,
   stdenv,
@@ -42,10 +41,7 @@ mkShell {
     echo "  bun       $(bun --version 2>/dev/null || echo 'not found')"
     echo "  cargo     $(cargo --version 2>/dev/null || echo 'not found')"
     echo ""
-    echo "Build the linux binary:"
-    echo "  bun install --frozen-lockfile"
-    echo "  bun --cwd=packages/natives run build"
-    echo "  CROSS_TARGET=linux-x64 CI=1 bun --cwd=packages/coding-agent run build"
-    echo "  → packages/coding-agent/dist/omp"
+    echo "Build the linux standalone binary:"
+    echo "  nix build .#omp     # → result/bin/omp  (FHS + raw bun --compile)"
   '';
 }

@@ -2,33 +2,40 @@
 #
 # Architecture — three derivations, only the first two touch the network:
 #
-#   npmDeps    (FOD)   `bun install --frozen-lockfile` → node_modules      (npm)
-#   cargoVendor (FOD)  `cargo vendor` for pi-natives → vendored crates      (crates.io)
-#   omp        (pure)  build .node (offline cargo) + gen:* + Bun.build       (no network)
+#   npmDeps     (FOD)   `bun install --frozen-lockfile` → node_modules      (npm)
+#   cargoVendor (FOD)   `cargo vendor` for pi-natives → vendored crates      (crates.io)
+#   omp         (FHS)   build .node (offline cargo) + gen:* + Bun.build       (no network)
 #
-# The final `omp` derivation is sandboxed and offline: the only network steps
-# (npm + crates.io) live in fixed-output derivations whose hashes are pinned.
-# The output binary is NOT a FOD, so its own reproducibility is irrelevant.
+# The final `omp` derivation runs inside a buildFHSEnv. The FHS is required
+# because `Bun.build({ compile })` embeds the *running* bun's runtime, and any
+# patchelf'd bun produces a segfaulting binary (verified). The raw (unpatched)
+# bun must run via its native `/lib64/ld-linux-x86-64.so.2` interpreter, which a
+# plain nix sandbox does not provide (sandbox-paths = /bin/sh only). The FHS
+# supplies /lib64/ld-linux (→ nix glibc), /usr/bin/env (so #!/usr/bin/env shebangs
+# in node_modules work without patchShebangs), and a cc/binutils for the cargo
+# build's C deps. The FODs still use the autoPatchelf'd ompBun (runs in a plain
+# sandbox); only the compile uses the raw bun (ompBun.raw) via the FHS.
 {
   lib,
   stdenv,
   stdenvNoCC,
   ompBun,
   fenixToolchain,
-  pkg-config,
-  openssl,
-  pcre2,
+  buildFHSEnv,
   git,
-  nodejs,
-  cacert,
   gnutar,
+  cacert,
   writeText,
   src,
 }:
 let
   # ── FOD 1: node_modules from a frozen lockfile (network: npm registry) ──
-  # Determinism verified: two independent `bun install` runs produce identical
-  # node_modules NAR hashes. `--ignore-scripts` skips the root `prepare` hook
+  # Determinism verified across runs. `--ignore-scripts` skips the root `prepare`
+  # hook (gen:tool-views); the build regenerates it explicitly before compiling.
+  # Output is a tarball (not a dir): bun's hoisted linker creates relative
+  # symlinks node_modules/@oh-my-pi/* → ../../packages/* that dangle when isolated
+  # in the store (noBrokenSymlinks rejects them). A tar preserves them verbatim;
+  # the omp build extracts it into the source tree where the symlinks resolve.
   npmDeps = stdenvNoCC.mkDerivation {
     name = "omp-node-modules.tar";
     inherit src;
@@ -42,12 +49,6 @@ let
       export BUN_INSTALL_CACHE_DIR="$TMPDIR/bun-cache"
       bun install --frozen-lockfile --ignore-scripts
     '';
-    # Output a tarball, not a directory: bun's hoisted linker creates relative
-    # symlinks from node_modules/@oh-my-pi/* → ../../packages/* (the workspace
-    # packages). These dangle when node_modules is isolated in the store, which
-    # the noBrokenSymlinks hook rejects. A tar preserves the symlinks verbatim
-    # (no validation); the omp derivation extracts it into the source tree, where
-    # the symlinks resolve against packages/. Deterministic flags → flat hash.
     installPhase = ''
       tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
         -cf "$out" node_modules
@@ -58,16 +59,12 @@ let
   };
 
   # ── FOD 2: vendored crates.io deps for crates/pi-natives (network: crates.io) ──
-  # `--versioned-dirs` gives stable directory names; the output is just extracted
-  # crate tarballs, so the recursive hash is reproducible across runs.
+  # dontFixup: nixpkgs' patchShebangs would rewrite vendored scripts' shebangs to
+  # /nix/store/.../bash, injecting a store-path reference that FODs disallow.
   cargoVendor = stdenvNoCC.mkDerivation {
     name = "omp-cargo-vendor";
     inherit src;
     nativeBuildInputs = [ fenixToolchain ];
-    # Vendored crate sources contain shell scripts with shebangs; nixpkgs'
-    # patchShebangs fixup would rewrite them to /nix/store/.../bash, injecting a
-    # store-path reference that FODs disallow. Skip fixup — the sources are used
-    # verbatim by the omp derivation's offline cargo build (which has bash).
     dontFixup = true;
     buildPhase = ''
       export CARGO_HOME="$TMPDIR/cargo"
@@ -80,10 +77,10 @@ let
       cp -r vendor/. "$out"/
     '';
     outputHashMode = "recursive";
+    outputHashAlgo = "sha256";
     outputHash = "sha256-fZy8d7aQwpMv9nMaysBEzCm/jp4C1yDGRoblNHbTzj8=";
   };
 
-  # Cargo config pointing at the vendored crates (absolute store path → offline).
   cargoConfig = writeText "cargo-config.toml" ''
     [source.crates-io]
     replace-with = "vendored-sources"
@@ -92,77 +89,95 @@ let
     directory = "${cargoVendor}"
   '';
 
-  # ── Final pure derivation: .node + codegen + Bun.build --compile ──
+  # ── buildFHSEnv: provides /lib64/ld-linux (raw bun), /usr/bin/env, cc, cargo ──
+  fhs = buildFHSEnv {
+    name = "omp-build";
+    targetPkgs =
+      p: with p; [
+        ompBun.raw # raw bun — `--compile` embeds its unmodified runtime
+        fenixToolchain # cargo + rustc (nightly-2026-04-29)
+        gcc # cc for the cargo build's C deps (pcre2-sys, tree-sitter, …)
+        binutils # as, ld, strip (build-native.ts strips the .node)
+        glibc
+        glibc.dev # libc headers for cc
+        pkg-config
+        openssl
+        pcre2
+        git
+        nodejs # napi CLI shebang is #!/usr/bin/env node
+        gnutar
+        coreutils
+        findutils
+        gnugrep
+        which
+      ];
+    runScript = "bash";
+  };
+
+  # ── Final derivation: .node + codegen + Bun.build --compile, inside the FHS ──
   omp = stdenv.mkDerivation (finalAttrs: {
     name = "omp-linux-x64";
     inherit src;
 
-    nativeBuildInputs = [
-      ompBun
-      fenixToolchain
-      pkg-config
-      openssl
-      pcre2
-      git
-      nodejs
-    ];
-
-    env = {
-      CARGO_NET_OFFLINE = "true";
-      # build-native.ts honors CI=1 → `--profile ci` (release, like the release
-      # artifacts) and TARGET_VARIANT=baseline → a portable x86-64-v2 .node that
-      # matches the bun-linux-x64-baseline compile target. build-native.ts sets
-      # PCRE2_SYS_STATIC=1 itself.
-      CI = "1";
-      TARGET_VARIANT = "baseline";
-      # CROSS_TARGET is NOT set here: build-native.ts routes through
-      # cargo-zigbuild when CROSS_TARGET is set (and skips the baseline
-      # RUSTFLAGS). It is scoped to step 2 only (the codegen + compile).
-    };
+    nativeBuildInputs = [ fhs ];
 
     buildPhase = ''
       runHook preBuild
 
-      # Extract node_modules from the FOD tarball into the source tree, so the
-      # workspace symlinks resolve against packages/. (patches applied in FOD.)
-      rm -rf node_modules
-      tar -xf ${npmDeps}
-      chmod -R u+w node_modules
-      # node_modules .bin scripts use `#!/usr/bin/env {node,bun}` shebangs, which
-      # fail in the sandbox (/usr/bin/env is unavailable). Rewrite them to the
-      # absolute nix interpreters (node from nodejs, bun from ompBun) in PATH.
-      patchShebangs node_modules
+      # The entire build runs inside the FHS so the raw bun (needed for a working
+      # `--compile`) can run via /lib64/ld-linux, and node_modules' #!/usr/bin/env
+      # shebangs resolve via /usr/bin/env — no patchShebangs needed.
+      ${fhs}/bin/omp-build -c '
+        set -euo pipefail
+        cd "$NIX_BUILD_TOP"/source
 
-      # Wire cargo to the vendored crates (no network in this derivation).
-      # CARGO_HOME/CARGO_TARGET_DIR are exported here, NOT via `env` — nixpkgs'
-      # `env` sets literal strings without expanding $TMPDIR, which broke the
-      # config path. The vendor config goes in a project-local .cargo/config.toml
-      # (the location `cargo vendor` recommends), which cargo reads regardless of
-      # CARGO_HOME.
-      export CARGO_HOME="$TMPDIR/cargo"
-      export CARGO_TARGET_DIR="$TMPDIR/cargo-target"
-      mkdir -p "$CARGO_HOME" .cargo
-      cp ${cargoConfig} .cargo/config.toml
+        # node_modules from the FOD tarball — extracted into the source tree so
+        # the workspace symlinks resolve against packages/.
+        rm -rf node_modules
+        tar -xf ${npmDeps}
+        chmod -R u+w node_modules
 
-      # 1) pi-natives N-API addon → packages/natives/native/pi_natives.linux-x64-baseline.node
-      ( cd packages/natives && bun run build )
+        # Offline cargo via the vendored crates (project-local config).
+        export CARGO_HOME="$TMPDIR"/cargo
+        export CARGO_TARGET_DIR="$TMPDIR"/cargo-target
+        export CARGO_NET_OFFLINE=true
+        # cc-rs: use gcc (nixpkgs gcc is on PATH as /usr/bin/gcc inside the FHS).
+        export CC=gcc
+        export CXX=g++
+        mkdir -p "$CARGO_HOME" .cargo
+        cp ${cargoConfig} .cargo/config.toml
 
-      # 2) gen:stats + gen:tool-views + gen:native (embed .node) + gen:mupdf
-      #    + Bun.build --compile (target bun-linux-x64-baseline) → dist/omp-linux-x64.
-      #    CROSS_TARGET is scoped HERE ONLY — step 1 must not see it (see env note).
-      ( cd packages/coding-agent && CROSS_TARGET=linux-x64 bun run build )
+        # 1) pi-natives N-API addon → packages/natives/native/pi_natives.linux-x64-baseline.node
+        #    CI=1 → --profile ci (release). TARGET_VARIANT=baseline → portable
+        #    x86-64-v2 .node matching the bun-linux-x64-baseline compile target.
+        #    (CROSS_TARGET is NOT set here — build-native.ts would route through
+        #    cargo-zigbuild and skip the baseline RUSTFLAGS; it is step-2 only.)
+        export CI=1
+        export TARGET_VARIANT=baseline
+        ( cd packages/natives && bun run build )
+
+        # 2) gen:stats + gen:tool-views + gen:native (embed .node) + gen:mupdf
+        #    + Bun.build --compile (target bun-linux-x64-baseline) → dist/omp-linux-x64.
+        #    CROSS_TARGET scoped here only.
+        ( cd packages/coding-agent && CROSS_TARGET=linux-x64 bun run build )
+
+        cp packages/coding-agent/dist/omp-linux-x64 "$NIX_BUILD_TOP"/omp-linux-x64
+      '
+
+      runHook postBuild
     '';
 
     installPhase = ''
       runHook preInstall
       mkdir -p "$out"/bin
-      install -Dm755 packages/coding-agent/dist/omp-linux-x64 "$out"/bin/omp
+      install -Dm755 "$NIX_BUILD_TOP"/omp-linux-x64 "$out"/bin/omp
       runHook postInstall
     '';
 
-    # The compiled binary links against the host glibc (like CI's release
-    # artifact) and is meant to run on any glibc linux — it is NOT patchelf'd
-    # to a nix glibc, so it stays portable.
+    # The compiled binary links the host glibc (like CI's release artifact) via
+    # /lib64/ld-linux — portable to any glibc linux (and NixOS via nix-ld). It is
+    # NOT patchelf'd to a nix glibc, so it stays portable. Never strip a
+    # bun-compiled binary (its embedded segments must be byte-exact).
     dontAutoPatchelf = true;
     dontStrip = true;
 
@@ -173,4 +188,7 @@ let
       platforms = [ "x86_64-linux" ];
     };
   });
-in { inherit npmDeps cargoVendor omp; }
+in
+{
+  inherit npmDeps cargoVendor omp;
+}
