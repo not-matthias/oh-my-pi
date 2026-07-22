@@ -7,11 +7,6 @@
 #
 # Walltime mode is required because omp targets Bun/JavaScriptCore; CodSpeed's
 # default CPU-simulation instrument is V8-only and will not fire.
-#
-# PREREQUISITE: codspeed-macro runners require the CodSpeed GitHub app
-# installed on the repo's org/account. If not installed, jobs sit permanently
-# queued. Install at https://github.com/apps/codspeed or switch runs-on to
-# ubuntu-latest (walltime works on standard runners, just with more variance).
 
 name: CodSpeed
 
@@ -26,7 +21,7 @@ jobs:
   # The `run:` input wraps the bench command with CodSpeed instrumentation
   # so per-bench.add() metrics are reported individually.
   micro-benchmarks:
-    runs-on: codspeed-macro
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -43,7 +38,7 @@ jobs:
   # The action discovers codspeed.yml at repo root and runs each exec: entry.
   # No `run:` input — the action reads the config file instead.
   cli-benchmarks:
-    runs-on: codspeed-macro
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
