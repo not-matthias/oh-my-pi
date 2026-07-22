@@ -123,7 +123,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-codspeed
-      - run: cargo codspeed build
+      - run: cargo codspeed build -p pi-walker -p pi-ast
       - uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
