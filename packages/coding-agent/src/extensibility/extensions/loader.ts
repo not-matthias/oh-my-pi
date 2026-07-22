@@ -549,33 +549,34 @@ export async function discoverExtensionPaths(
 		}
 	};
 
-	// 1. Discover extension modules via capability API (native .omp/.pi only).
-	// Scope the load to the native provider — the extension-module capability
-	// also has claude/codex/gemini/opencode providers, and their items were
-	// discarded here anyway (see #4198). The provider filter skips the walk
-	// entirely instead of running four foreign directory scans and dropping
-	// the results.
-	const discovered = await loadCapability<ExtensionModule>(extensionModuleCapability.id, {
-		...loadOptions,
-		providers: ["native"],
-	});
+	// 1-3. Discover extension modules, hooks, and plugin entry points in
+	// parallel — these are independent I/O operations with no data
+	// dependencies between them. Results are consumed in the same order as
+	// the original sequential code so allPaths ordering is preserved.
+	// Scope the extension-module load to the native provider — the
+	// extension-module capability also has claude/codex/gemini/opencode
+	// providers, and their items were discarded here anyway (see #4198). The
+	// provider filter skips the walk entirely instead of running four foreign
+	// directory scans and dropping the results.
+	// Hook capability loading already applies hook-specific disabled ids; do
+	// not also filter them through extension-module names.
+	const [discovered, hooks, pluginPaths] = await Promise.all([
+		loadCapability<ExtensionModule>(extensionModuleCapability.id, {
+			...loadOptions,
+			providers: ["native"],
+		}),
+		loadCapability<Hook>(hookCapability.id, loadOptions),
+		getAllPluginExtensionPaths(cwd),
+	]);
 	for (const ext of discovered.items) {
 		addPath(ext.path);
 	}
-
-	// 2. Discover JS/TS hook factories from hookCapability and bind them through
-	// the extension runner, which owns the current runtime event bus. Hook
-	// capability loading already applies hook-specific disabled ids; do not also
-	// filter them through extension-module names.
-	const hooks = await loadCapability<Hook>(hookCapability.id, loadOptions);
 	for (const hookPath of hooks.items
 		.map(hook => hook.path)
 		.filter(hookPath => isExtensionFile(path.basename(hookPath)))) {
 		addPath(hookPath);
 	}
-
-	// 3. Discover extension entry points from installed plugins
-	addPaths(await getAllPluginExtensionPaths(cwd));
+	addPaths(pluginPaths);
 
 	// 4. Explicitly configured paths
 	for (const configuredPath of configuredPaths) {

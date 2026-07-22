@@ -1092,13 +1092,26 @@ export class Settings {
 		try {
 			const result = await loadCapability(settingsCapability.id, { cwd: this.#cwd });
 			let merged: RawSettings = {};
+			let nativeModelRoles: unknown;
 			for (const item of result.items as SettingsCapabilityItem[]) {
 				if (item.level === "project") {
 					merged = this.#deepMerge(merged, item.data as RawSettings);
 				}
+				// The native .omp/config.yml's modelRoles must take precedence
+				// over other providers' project settings. Track it from the
+				// capability result (already read by the builtin provider) and
+				// re-apply last, avoiding a redundant re-read of config.yml.
+				if (
+					item.level === "project" &&
+					item._source.provider === "native" &&
+					item.path.endsWith("config.yml")
+				) {
+					const roles = getByPath(item.data as RawSettings, ["modelRoles"]);
+					if (roles !== undefined) {
+						nativeModelRoles = roles;
+					}
+				}
 			}
-			const nativeProject = await this.#loadYaml(path.join(this.#cwd, ".omp", "config.yml"));
-			const nativeModelRoles = getByPath(nativeProject, ["modelRoles"]);
 			if (nativeModelRoles !== undefined) {
 				merged = this.#deepMerge(merged, { modelRoles: nativeModelRoles });
 			}
