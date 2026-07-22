@@ -1,0 +1,50 @@
+name: CodSpeed
+
+on:
+   push:
+      branches: [main]
+   pull_request:
+      branches: [main]
+   # `workflow_dispatch` lets CodSpeed trigger a backtest run to seed
+   # initial baseline data.
+   workflow_dispatch:
+
+# Match the main CI concurrency model: cancel superseded runs on the same ref
+# so PR/main churn doesn't pile up benchmark jobs.
+concurrency:
+   group: "${{ github.workflow }}-${{ github.ref }}"
+   cancel-in-progress: true
+
+permissions:
+   contents: read
+   id-token: write # OpenID Connect authentication with CodSpeed
+
+jobs:
+   benchmarks:
+      name: Run benchmarks
+      runs-on: ubuntu-latest
+      steps:
+         - uses: actions/checkout@v4
+
+         # Honor the pinned nightly from rust-toolchain.toml via the repo's
+         # own composite action so the benchmark build uses the same compiler
+         # as the rest of the workspace.
+         - name: Ensure Rust toolchain
+           uses: ./.github/actions/ensure-rust-toolchain
+           with:
+              toolchain: nightly-2026-04-29
+
+         - name: Ensure cargo-codspeed
+           uses: ./.github/actions/ensure-cargo-tool
+           with:
+              binary: cargo-codspeed
+              crate: cargo-codspeed
+
+         - name: Build the benchmark target(s)
+           run: cargo codspeed build -p pi-ast
+
+         - name: Run the benchmarks
+           uses: CodSpeedHQ/action@v4
+           with:
+              mode: simulation
+              run: cargo codspeed run -p pi-ast
