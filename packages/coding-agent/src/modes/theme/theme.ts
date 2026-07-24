@@ -32,7 +32,7 @@ let piNatives: PiNativesModule | undefined;
 let piNativesPromise: Promise<PiNativesModule | undefined> | undefined;
 
 /** Load the pi-natives N-API addon lazily, off the synchronous import graph. */
-async function ensurePiNativesLoaded(): Promise<PiNativesModule | undefined> {
+export async function ensurePiNativesLoaded(): Promise<PiNativesModule | undefined> {
 	if (piNatives) return piNatives;
 	if (!piNativesPromise) {
 		piNativesPromise = (async () => {
