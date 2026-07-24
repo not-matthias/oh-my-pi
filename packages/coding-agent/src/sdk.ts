@@ -123,7 +123,7 @@ import {
 	SecretObfuscator,
 	secretEntriesNeedPlaceholderKey,
 } from "./secrets";
-import { AgentSession, type InitialRetryFallbackState, type PlanYolo, type Prewalk } from "./session/agent-session";
+import type { AgentSession, InitialRetryFallbackState, PlanYolo, Prewalk } from "./session/agent-session";
 import { discoverAuthStorage as discoverAuthStorageFromConfig } from "./session/auth-broker-config";
 import type { AuthStorage } from "./session/auth-storage";
 import { createInterruptedTurnAbortMessage } from "./session/exit-diagnostics";
@@ -184,13 +184,13 @@ import {
 	isMountableUnderXdev,
 	type LspStartupServerInfo,
 	ReadTool,
-	releaseComputerSessionsForOwner,
 	type Tool,
 	type ToolSession,
 	WebSearchTool,
 	WriteTool,
 } from "./tools";
 import { isMCPToolName, normalizeToolNames } from "./tools/builtin-names";
+import { releaseComputerSessionsForOwner } from "./tools/computer/supervisor";
 import { ToolContextStore } from "./tools/context";
 import { isIrcEnabled } from "./tools/hub";
 import { getImageGenTools } from "./tools/image-gen";
@@ -3092,7 +3092,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// Owned only when this session created the manager; subagents receive a
 		// parent's manager via `options.mcpManager` and MUST NOT disconnect it.
 		const ownedMcpManager = options.mcpManager ? undefined : mcpManager;
-		session = new AgentSession({
+		const { AgentSession: AgentSessionClass } = await import("./session/agent-session");
+		session = new AgentSessionClass({
 			advisorWatchdogPrompt,
 			advisorContextPrompt,
 			advisorSharedInstructions: discoveredAdvisors.sharedInstructions,

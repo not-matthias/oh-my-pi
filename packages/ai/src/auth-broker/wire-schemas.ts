@@ -20,6 +20,7 @@ import { scope } from "arktype";
 // — ~65% cheaper to construct, validation correctness unchanged. (No `name`:
 // duplicate module instances would collide.)
 const { type } = scope({}, { jitless: true });
+
 import { REMOTE_REFRESH_SENTINEL } from "../auth-storage";
 
 // ─── Credential payloads ───────────────────────────────────────────────────

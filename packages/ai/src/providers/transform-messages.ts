@@ -397,83 +397,83 @@ function redactSensitiveCredentialsInMessages(messages: Message[]): Message[] {
 		const memoized = redactMessageMemo.get(msg);
 		if (memoized !== undefined) return memoized;
 		const result: Message = (() => {
-		if (msg.role === "user" || msg.role === "developer") {
-			const userMsg = msg as UserMessage | DeveloperMessage;
-			if (typeof userMsg.content === "string") {
-				const redacted = redactSensitiveCredentials(userMsg.content);
-				if (redacted === userMsg.content) return msg;
-				return { ...userMsg, content: redacted } as Message;
-			}
-			const contentArray = userMsg.content;
-			let changed = false;
-			const content = contentArray.map((block): UserMessage["content"][number] => {
-				if (block.type === "text") {
-					const redacted = redactSensitiveCredentials(block.text);
-					if (redacted !== block.text) {
-						changed = true;
-						return { ...block, text: redacted };
-					}
+			if (msg.role === "user" || msg.role === "developer") {
+				const userMsg = msg as UserMessage | DeveloperMessage;
+				if (typeof userMsg.content === "string") {
+					const redacted = redactSensitiveCredentials(userMsg.content);
+					if (redacted === userMsg.content) return msg;
+					return { ...userMsg, content: redacted } as Message;
 				}
-				return block;
-			});
-			return (changed ? { ...userMsg, content } : userMsg) as Message;
-		}
-
-		if (msg.role === "toolResult") {
-			const toolResultMsg = msg as ToolResultMessage;
-			let changed = false;
-			const content = toolResultMsg.content.map((block): ToolResultMessage["content"][number] => {
-				if (block.type === "text") {
-					const redacted = redactSensitiveCredentials(block.text);
-					if (redacted !== block.text) {
-						changed = true;
-						return { ...block, text: redacted };
-					}
-				}
-				return block;
-			});
-			return (changed ? { ...toolResultMsg, content } : toolResultMsg) as Message;
-		}
-
-		if (msg.role === "assistant") {
-			const assistantMsg = msg as AssistantMessage;
-			let changed = false;
-			const content = assistantMsg.content.map((block): AssistantMessage["content"][number] => {
-				if (block.type === "text") {
-					const redacted = redactSensitiveCredentials(block.text);
-					if (redacted !== block.text) {
-						changed = true;
-						return { ...block, text: redacted };
-					}
-				} else if (block.type === "thinking") {
-					const redacted = redactSensitiveCredentials(block.thinking);
-					if (redacted !== block.thinking) {
-						changed = true;
-						return { ...block, thinking: redacted, thinkingSignature: undefined };
-					}
-				} else if (block.type === "toolCall") {
-					if (block.arguments) {
-						const { result: redactedArgs, changed: argsChanged } = redactSensitiveInObject(block.arguments);
-						if (argsChanged) {
+				const contentArray = userMsg.content;
+				let changed = false;
+				const content = contentArray.map((block): UserMessage["content"][number] => {
+					if (block.type === "text") {
+						const redacted = redactSensitiveCredentials(block.text);
+						if (redacted !== block.text) {
 							changed = true;
-							const castArgs =
-								redactedArgs && typeof redactedArgs === "object" && !Array.isArray(redactedArgs)
-									? (redactedArgs as Record<string, unknown>)
-									: undefined;
-							return {
-								...block,
-								arguments: castArgs,
-								thoughtSignature: undefined,
-							} as AssistantMessage["content"][number];
+							return { ...block, text: redacted };
 						}
 					}
-				}
-				return block;
-			});
-			return (changed ? { ...assistantMsg, content } : assistantMsg) as Message;
-		}
+					return block;
+				});
+				return (changed ? { ...userMsg, content } : userMsg) as Message;
+			}
 
-		return msg;
+			if (msg.role === "toolResult") {
+				const toolResultMsg = msg as ToolResultMessage;
+				let changed = false;
+				const content = toolResultMsg.content.map((block): ToolResultMessage["content"][number] => {
+					if (block.type === "text") {
+						const redacted = redactSensitiveCredentials(block.text);
+						if (redacted !== block.text) {
+							changed = true;
+							return { ...block, text: redacted };
+						}
+					}
+					return block;
+				});
+				return (changed ? { ...toolResultMsg, content } : toolResultMsg) as Message;
+			}
+
+			if (msg.role === "assistant") {
+				const assistantMsg = msg as AssistantMessage;
+				let changed = false;
+				const content = assistantMsg.content.map((block): AssistantMessage["content"][number] => {
+					if (block.type === "text") {
+						const redacted = redactSensitiveCredentials(block.text);
+						if (redacted !== block.text) {
+							changed = true;
+							return { ...block, text: redacted };
+						}
+					} else if (block.type === "thinking") {
+						const redacted = redactSensitiveCredentials(block.thinking);
+						if (redacted !== block.thinking) {
+							changed = true;
+							return { ...block, thinking: redacted, thinkingSignature: undefined };
+						}
+					} else if (block.type === "toolCall") {
+						if (block.arguments) {
+							const { result: redactedArgs, changed: argsChanged } = redactSensitiveInObject(block.arguments);
+							if (argsChanged) {
+								changed = true;
+								const castArgs =
+									redactedArgs && typeof redactedArgs === "object" && !Array.isArray(redactedArgs)
+										? (redactedArgs as Record<string, unknown>)
+										: undefined;
+								return {
+									...block,
+									arguments: castArgs,
+									thoughtSignature: undefined,
+								} as AssistantMessage["content"][number];
+							}
+						}
+					}
+					return block;
+				});
+				return (changed ? { ...assistantMsg, content } : assistantMsg) as Message;
+			}
+
+			return msg;
 		})();
 		redactMessageMemo.set(msg, result);
 		return result;
@@ -965,9 +965,7 @@ export function transformMessages<TApi extends Api>(
 	// so Array.prototype.slice doesn't treat -1 as "last element".
 	const tailStart = latestSurvivingAssistantIndex < 0 ? 0 : latestSurvivingAssistantIndex;
 	const firstPassTail =
-		tailStart < messages.length
-			? messages.slice(tailStart).map((msg, i) => transformOne(msg, tailStart + i))
-			: [];
+		tailStart < messages.length ? messages.slice(tailStart).map((msg, i) => transformOne(msg, tailStart + i)) : [];
 	const normalizedMessages = [...firstPassPrefix, ...firstPassTail];
 	const transformed = deduplicateToolCallIds(
 		normalizedMessages,

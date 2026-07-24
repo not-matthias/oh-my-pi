@@ -6,13 +6,8 @@ import type { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/ex
 import { ExtensionToolWrapper } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { getThemeByName } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import { buildSystemPrompt } from "@oh-my-pi/pi-coding-agent/system-prompt";
-import {
-	type ComputerParams,
-	ComputerTool,
-	computerApproval,
-	createTools,
-	type ToolSession,
-} from "@oh-my-pi/pi-coding-agent/tools";
+import { type ComputerParams, createTools, type ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import { ComputerTool, computerApproval } from "@oh-my-pi/pi-coding-agent/tools/computer";
 import type {
 	ComputerWorkerInbound,
 	ComputerWorkerOutbound,

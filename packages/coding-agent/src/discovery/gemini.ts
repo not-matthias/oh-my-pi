@@ -253,39 +253,39 @@ async function loadSettings(ctx: LoadContext): Promise<LoadResult<Settings>> {
 
 	// User-level: ~/.gemini/settings.json
 	const userPath = getUserPath(ctx, "gemini", "settings.json");
-	if (userPath) {
-		const content = await readFile(userPath);
-		if (content) {
-			const parsed = tryParseJson<Record<string, unknown>>(content);
-			if (parsed) {
-				items.push({
-					path: userPath,
-					data: parsed,
-					level: "user",
-					_source: createSourceMeta(PROVIDER_ID, userPath, "user"),
-				});
-			} else {
-				warnings.push(`Invalid JSON in ${userPath}`);
-			}
+	// Project-level: .gemini/settings.json
+	const projectPath = getProjectPath(ctx, "gemini", "settings.json");
+
+	const [userContent, projectContent] = await Promise.all([
+		userPath ? readFile(userPath) : Promise.resolve(undefined),
+		projectPath ? readFile(projectPath) : Promise.resolve(undefined),
+	]);
+
+	if (userPath && userContent) {
+		const parsed = tryParseJson<Record<string, unknown>>(userContent);
+		if (parsed) {
+			items.push({
+				path: userPath,
+				data: parsed,
+				level: "user",
+				_source: createSourceMeta(PROVIDER_ID, userPath, "user"),
+			});
+		} else {
+			warnings.push(`Invalid JSON in ${userPath}`);
 		}
 	}
 
-	// Project-level: .gemini/settings.json
-	const projectPath = getProjectPath(ctx, "gemini", "settings.json");
-	if (projectPath) {
-		const content = await readFile(projectPath);
-		if (content) {
-			const parsed = tryParseJson<Record<string, unknown>>(content);
-			if (parsed) {
-				items.push({
-					path: projectPath,
-					data: parsed,
-					level: "project",
-					_source: createSourceMeta(PROVIDER_ID, projectPath, "project"),
-				});
-			} else {
-				warnings.push(`Invalid JSON in ${projectPath}`);
-			}
+	if (projectPath && projectContent) {
+		const parsed = tryParseJson<Record<string, unknown>>(projectContent);
+		if (parsed) {
+			items.push({
+				path: projectPath,
+				data: parsed,
+				level: "project",
+				_source: createSourceMeta(PROVIDER_ID, projectPath, "project"),
+			});
+		} else {
+			warnings.push(`Invalid JSON in ${projectPath}`);
 		}
 	}
 

@@ -366,11 +366,13 @@ export async function loadExtensions(paths: string[], cwd: string, eventBus?: Ev
 	const resolvedEventBus = eventBus ?? new EventBus();
 	const runtime = new ExtensionRuntime();
 
-	for (const extPath of paths) {
-		const { extension, error } = await loadExtension(extPath, cwd, resolvedEventBus, runtime);
+	const results = await Promise.all(paths.map(extPath => loadExtension(extPath, cwd, resolvedEventBus, runtime)));
+
+	for (let i = 0; i < paths.length; i++) {
+		const { extension, error } = results[i];
 
 		if (error) {
-			errors.push({ path: extPath, error });
+			errors.push({ path: paths[i], error });
 			continue;
 		}
 

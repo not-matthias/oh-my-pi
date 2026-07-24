@@ -2,8 +2,8 @@
  * Built-in model roles and role metadata helpers.
  */
 
-import { isValidThemeColor, type ThemeColor } from "../modes/theme/theme";
 import type { Settings } from "./settings";
+import { isValidThemeColor, type ThemeColor } from "./theme-types";
 
 /** Canonical prefix for a configured model role selector. */
 export const MODEL_ROLE_ALIAS_PREFIX = "@";

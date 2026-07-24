@@ -471,6 +471,9 @@ export const HIDDEN_TOOLS: Record<HiddenToolName, ToolFactory> = {
 	},
 };
 
+/** Merged factory lookup built once at module load, not per createTools() call. */
+const ALL_TOOLS: Record<string, ToolFactory> = { ...BUILTIN_TOOLS, ...HIDDEN_TOOLS };
+
 export type ToolName = BuiltinToolName;
 
 /**
@@ -592,7 +595,6 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			}
 		}
 	}
-	const allTools: Record<string, ToolFactory> = { ...BUILTIN_TOOLS, ...HIDDEN_TOOLS };
 	const isToolAllowed = (name: string) => {
 		if (name === "goal") return goalEnabled && goalModeActive;
 		if (name === "lsp") return enableLsp && session.settings.get("lsp.enabled");
@@ -638,10 +640,10 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		requestedTools.push("yield");
 	}
 
-	const filteredRequestedTools = requestedTools?.filter(name => name in allTools && isToolAllowed(name));
+	const filteredRequestedTools = requestedTools?.filter(name => name in ALL_TOOLS && isToolAllowed(name));
 	const baseEntries =
 		filteredRequestedTools !== undefined
-			? filteredRequestedTools.map(name => [name, allTools[name]] as const)
+			? filteredRequestedTools.map(name => [name, ALL_TOOLS[name]] as const)
 			: [
 					...Object.entries(BUILTIN_TOOLS)
 						.filter(([name]) => isToolAllowed(name))

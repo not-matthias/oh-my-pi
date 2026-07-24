@@ -53,6 +53,7 @@ __pycache__/
 syntax.jsonl
 out.jsonl
 out.html
+result
 pi-*.html
 .close_issue.sh
 

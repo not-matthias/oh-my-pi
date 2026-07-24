@@ -6,13 +6,10 @@
  */
 import { scope } from "arktype";
 
-// These schemas validate broker `/v1/usage` payloads at request time, not at
-// module load, so the eager JIT codegen ArkType runs at definition time is
-// pure startup tax. A local jitless scope skips that codegen and falls back
-// to interpreted traversal — ~65% cheaper to construct, validation
-// correctness unchanged. (No `name`: duplicate module instances would
-// collide.)
-const { type } = scope({}, { jitless: true });
+// Schemas validate broker `/v1/usage` payloads at request time, not at module
+// load. The `scope()` + `type()` construction is deferred to first use via
+// `getUsageReportSchema()` — the `scope` import is static but schema
+// construction (the ~93ms startup tax) is lazy.
 import type { FetchImpl, Provider } from "./types";
 export type UsageUnit = "percent" | "tokens" | "requests" | "usd" | "minutes" | "bytes" | "unknown";
 
@@ -248,71 +245,99 @@ export interface ClientUsageSummary {
 	clients: ClientUsageClientSummary[];
 }
 
-// ─── Zod schemas (wire-shape validation for the broker `/v1/usage` endpoint) ─
+// ─── Wire-shape validation schemas (broker `/v1/usage` endpoint) ──────────
 
-export const usageUnitSchema = type("'percent' | 'tokens' | 'requests' | 'usd' | 'minutes' | 'bytes' | 'unknown'");
-export const usageStatusSchema = type("'ok' | 'warning' | 'exhausted' | 'unknown'");
+// Schemas are constructed lazily on first use via `getUsageReportSchema()`,
+// deferring `scope()` + `type()` setup from module load to first validation.
+function makeUsageSchemas() {
+	const { type } = scope({}, { jitless: true });
 
-export const usageWindowSchema = type({
-	id: "string",
-	label: "string",
-	"durationMs?": "number",
-	"resetsAt?": "number",
-	"resetLabel?": "string",
-});
+	const usageUnitSchema = type("'percent' | 'tokens' | 'requests' | 'usd' | 'minutes' | 'bytes' | 'unknown'");
+	const usageStatusSchema = type("'ok' | 'warning' | 'exhausted' | 'unknown'");
 
-export const usageAmountSchema = type({
-	"used?": "number",
-	"limit?": "number",
-	"remaining?": "number",
-	"usedFraction?": "number",
-	"remainingFraction?": "number",
-	unit: usageUnitSchema,
-});
+	const usageWindowSchema = type({
+		id: "string",
+		label: "string",
+		"durationMs?": "number",
+		"resetsAt?": "number",
+		"resetLabel?": "string",
+	});
 
-export const usageScopeSchema = type({
-	provider: "string",
-	"accountId?": "string",
-	"projectId?": "string",
-	"orgId?": "string",
-	"modelId?": "string",
-	"tier?": "string",
-	"windowId?": "string",
-	"shared?": "boolean",
-});
+	const usageAmountSchema = type({
+		"used?": "number",
+		"limit?": "number",
+		"remaining?": "number",
+		"usedFraction?": "number",
+		"remainingFraction?": "number",
+		unit: usageUnitSchema,
+	});
 
-export const usageLimitSchema = type({
-	id: "string",
-	label: "string",
-	scope: usageScopeSchema,
-	"window?": usageWindowSchema,
-	amount: usageAmountSchema,
-	"status?": usageStatusSchema,
-	"notes?": "string[]",
-});
+	const usageScopeSchema = type({
+		provider: "string",
+		"accountId?": "string",
+		"projectId?": "string",
+		"orgId?": "string",
+		"modelId?": "string",
+		"tier?": "string",
+		"windowId?": "string",
+		"shared?": "boolean",
+	});
 
-export const usageResetCreditDetailSchema = type({
-	"grantedAt?": "string",
-	"expiresAt?": "string",
-	"status?": "string",
-});
+	const usageLimitSchema = type({
+		id: "string",
+		label: "string",
+		scope: usageScopeSchema,
+		"window?": usageWindowSchema,
+		amount: usageAmountSchema,
+		"status?": usageStatusSchema,
+		"notes?": "string[]",
+	});
 
-export const usageResetCreditsSchema = type({
-	availableCount: "number",
-	"credits?": usageResetCreditDetailSchema.array(),
-});
+	const usageResetCreditDetailSchema = type({
+		"grantedAt?": "string",
+		"expiresAt?": "string",
+		"status?": "string",
+	});
 
-export const usageReportSchema = type({
-	provider: "string",
-	fetchedAt: "number",
-	limits: usageLimitSchema.array(),
-	"resetCredits?": usageResetCreditsSchema,
-	"notes?": "string[]",
-	"metadata?": { "[string]": "unknown" },
-	// `raw` is provider-specific and may be anything; the broker strips it before
-	// sending the report over the wire, so accept-but-ignore here.
-	"raw?": "unknown",
-});
+	const usageResetCreditsSchema = type({
+		availableCount: "number",
+		"credits?": usageResetCreditDetailSchema.array(),
+	});
+
+	const usageReportSchema = type({
+		provider: "string",
+		fetchedAt: "number",
+		limits: usageLimitSchema.array(),
+		"resetCredits?": usageResetCreditsSchema,
+		"notes?": "string[]",
+		"metadata?": { "[string]": "unknown" },
+		// `raw` is provider-specific and may be anything; the broker strips it
+		// before sending the report over the wire, so accept-but-ignore here.
+		"raw?": "unknown",
+	});
+
+	return {
+		usageUnitSchema,
+		usageStatusSchema,
+		usageWindowSchema,
+		usageAmountSchema,
+		usageScopeSchema,
+		usageLimitSchema,
+		usageResetCreditDetailSchema,
+		usageResetCreditsSchema,
+		usageReportSchema,
+	};
+}
+
+let _schemas: { usageReportSchema: (data: unknown) => unknown } | undefined;
+function schemas() {
+	if (!_schemas) _schemas = makeUsageSchemas();
+	return _schemas;
+}
+
+export function getUsageReportSchema() {
+	return schemas().usageReportSchema;
+}
 
 /** Optional logger for usage fetchers. */
 export interface UsageLogger {

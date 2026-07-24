@@ -222,6 +222,7 @@ export class XdevRegistry {
 	 * disconnected tool is no longer callable through a stale device.
 	 */
 	#dynamic = new Map<string, Tool>();
+	#docsAllCache: string | undefined;
 
 	constructor(builtins: Iterable<Tool>) {
 		for (const tool of builtins) this.#builtins.set(tool.name, tool);
@@ -239,6 +240,7 @@ export class XdevRegistry {
 			next.set(tool.name, tool);
 		}
 		this.#dynamic = next;
+		this.#docsAllCache = undefined;
 	}
 
 	get size(): number {
@@ -306,6 +308,7 @@ export class XdevRegistry {
 	 * chars (schema always intact); `read xd://<tool>` returns the full text.
 	 */
 	docsAll(mode: XdevDocsMode = "inline", inlinePatterns: readonly string[] = []): string {
+		if (this.#docsAllCache !== undefined) return this.#docsAllCache;
 		const sections: string[] = [];
 		const overflow: Tool[] = [];
 		const inlineGlobs = compileInlineGlobs(inlinePatterns);
@@ -337,7 +340,8 @@ export class XdevRegistry {
 				].join("\n"),
 			);
 		}
-		return sections.join("\n\n");
+		this.#docsAllCache = sections.join("\n\n");
+		return this.#docsAllCache;
 	}
 
 	/** Docs for selected mounted devices under the configured prompt-doc policy. */

@@ -5,8 +5,8 @@
 import type { Api, ModelSpec } from "@oh-my-pi/pi-ai/types";
 import { ConfigFile } from "./config-file";
 import {
-	type ModelsConfig,
 	getModelsConfigSchema,
+	type ModelsConfig,
 	type ProviderAuthMode,
 	type ProviderDiscovery,
 } from "./models-config-schema";

@@ -851,7 +851,8 @@ async function loadSettings(ctx: LoadContext): Promise<LoadResult<Settings>> {
 
 	for (const { dir, level } of await getConfigDirs(ctx)) {
 		const settingsPath = path.join(dir, "settings.json");
-		const settingsContent = await readFile(settingsPath);
+		const configPath = path.join(dir, "config.yml");
+		const [settingsContent, configContent] = await Promise.all([readFile(settingsPath), readFile(configPath)]);
 		if (settingsContent) {
 			const data = tryParseJson<Record<string, unknown>>(settingsContent);
 			if (data) {
@@ -866,8 +867,6 @@ async function loadSettings(ctx: LoadContext): Promise<LoadResult<Settings>> {
 			}
 		}
 
-		const configPath = path.join(dir, "config.yml");
-		const configContent = await readFile(configPath);
 		if (!configContent) continue;
 
 		const data = parseYamlSettings(configContent, configPath);

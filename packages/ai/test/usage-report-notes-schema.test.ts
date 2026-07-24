@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { usageReportSchema } from "@oh-my-pi/pi-ai";
+import { getUsageReportSchema } from "@oh-my-pi/pi-ai";
 import { usageResponseSchema } from "@oh-my-pi/pi-ai/auth-broker/wire-schemas";
 import { type } from "arktype";
 
@@ -37,7 +37,7 @@ function reportWithNotes() {
 
 describe("usage report notes wire schema", () => {
 	it("usageReportSchema accepts report-level notes and preserves them", () => {
-		const validated = usageReportSchema(reportWithNotes());
+		const validated = getUsageReportSchema()(reportWithNotes());
 		expect(validated).not.toBeInstanceOf(type.errors);
 		expect(validated).toHaveProperty("notes", [DISCLAIMER]);
 	});

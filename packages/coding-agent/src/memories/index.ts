@@ -143,11 +143,18 @@ export function startMemoryStartupTask(options: {
 	}
 
 	const signal = session.beginLocalMemoryStartup?.() ?? new AbortController().signal;
-	void runMemoryStartup({ session, settings, modelRegistry, agentDir, config: cfg, signal })
-		.catch(error => {
-			if (!signal.aborted) logger.warn("Memory startup failed", { error: String(error) });
-		})
-		.finally(() => session.endLocalMemoryStartup?.(signal));
+	// Defer to the next event loop turn so the synchronous SQLite open in
+	// runPhase1 does not block the pre-paint critical path. Memory results
+	// are not needed for the initial prompt — refreshBaseSystemPrompt
+	// updates the prompt when the background pipeline completes.
+	const timer = setTimeout(() => {
+		void runMemoryStartup({ session, settings, modelRegistry, agentDir, config: cfg, signal })
+			.catch(error => {
+				if (!signal.aborted) logger.warn("Memory startup failed", { error: String(error) });
+			})
+			.finally(() => session.endLocalMemoryStartup?.(signal));
+	}, 0);
+	timer.unref();
 }
 
 interface MemoryInstructionSession {

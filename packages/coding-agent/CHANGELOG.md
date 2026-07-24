@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Added `omp-linux-musl-x64` and `omp-linux-musl-arm64` release binaries for Alpine and other musl-based Linux distributions, with automatic musl selection in the binary installer. ([#3367](https://github.com/can1357/oh-my-pi/issues/3367))
+- Deferred SDK loading so `--version`/`--export`/RPC-error exits skip the full session stack.
+- Preloaded tool modules to reduce tool creation time.
+- Preloaded the active memory backend packages.
+- Parallelized settings file reads across discovery providers.
+- Parallelized extension loading.
+- Memoized xdev device docs to avoid redundant schema serialization.
+- Cached the tool factory lookup at module scope.
+- Deferred local memory backend startup and removed a duplicate database preflight.
+- Skip extension loading for non-interactive (`--print`) mode, reducing startup time by ~110ms.
+- Replaced `@oh-my-pi/pi-ai` barrel imports with specific submodule imports across startup-path files (settings-schema, api-key-resolver, thinking, model-discovery, agent-storage) for explicit dependency surfaces.
+- Bypassed `@oh-my-pi/pi-agent-core` barrel in main.ts, model-resolver.ts, and thinking.ts by importing `EventLoopKeepalive` and `ThinkingLevel` from their specific submodules.
+- Extracted `aggregateExtensionFlags` from `ExtensionRunner` into a standalone module (`flag-aggregator.ts`).
+
 ## [17.1.2] - 2026-07-24
 
 ### Added

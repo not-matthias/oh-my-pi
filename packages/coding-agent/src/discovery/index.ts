@@ -42,17 +42,46 @@ import { registerLazyModule } from "../capability";
 import "./agents-md";
 import "./builtin";
 import "./builtin-defaults";
-registerLazyModule(() => import("./claude"), ["mcps", "context-files", "skills", "extension-modules", "slash-commands", "hooks", "tools", "settings", "system-prompt"]);
+
+registerLazyModule(
+	() => import("./claude"),
+	[
+		"mcps",
+		"context-files",
+		"skills",
+		"extension-modules",
+		"slash-commands",
+		"hooks",
+		"tools",
+		"settings",
+		"system-prompt",
+	],
+);
 registerLazyModule(() => import("./claude-plugins"), ["skills", "slash-commands", "hooks", "tools", "mcps"]);
 registerLazyModule(() => import("./cline"), ["rules"]);
-registerLazyModule(() => import("./agents"), ["skills", "rules", "prompts", "slash-commands", "context-files", "system-prompt"]);
-registerLazyModule(() => import("./codex"), ["context-files", "mcps", "skills", "extension-modules", "slash-commands", "prompts", "hooks", "tools", "settings"]);
+registerLazyModule(
+	() => import("./agents"),
+	["skills", "rules", "prompts", "slash-commands", "context-files", "system-prompt"],
+);
+registerLazyModule(
+	() => import("./codex"),
+	["context-files", "mcps", "skills", "extension-modules", "slash-commands", "prompts", "hooks", "tools", "settings"],
+);
 registerLazyModule(() => import("./cursor"), ["mcps", "rules", "settings"]);
-registerLazyModule(() => import("./gemini"), ["mcps", "context-files", "system-prompt", "extensions", "extension-modules", "settings"]);
-registerLazyModule(() => import("./opencode"), ["context-files", "mcps", "skills", "extension-modules", "slash-commands", "settings"]);
+registerLazyModule(
+	() => import("./gemini"),
+	["mcps", "context-files", "system-prompt", "extensions", "extension-modules", "settings"],
+);
+registerLazyModule(
+	() => import("./opencode"),
+	["context-files", "mcps", "skills", "extension-modules", "slash-commands", "settings"],
+);
 registerLazyModule(() => import("./github"), ["context-files", "instructions", "rules", "skills", "prompts"]);
 registerLazyModule(() => import("./mcp-json"), ["mcps"]);
-registerLazyModule(() => import("./omp-plugins"), ["skills", "slash-commands", "rules", "prompts", "hooks", "tools", "mcps"]);
+registerLazyModule(
+	() => import("./omp-plugins"),
+	["skills", "slash-commands", "rules", "prompts", "hooks", "tools", "mcps"],
+);
 registerLazyModule(() => import("./ssh"), ["ssh"]);
 registerLazyModule(() => import("./vscode"), ["mcps"]);
 registerLazyModule(() => import("./windsurf"), ["mcps", "rules"]);

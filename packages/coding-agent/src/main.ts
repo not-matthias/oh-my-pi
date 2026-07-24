@@ -7,7 +7,7 @@
 import * as fsSync from "node:fs";
 import * as os from "node:os";
 import { createInterface } from "node:readline/promises";
-import { EventLoopKeepalive } from "@oh-my-pi/pi-agent-core";
+import { EventLoopKeepalive } from "@oh-my-pi/pi-agent-core/utils/yield";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 import {
 	$env,
@@ -50,8 +50,8 @@ import {
 	resolveActiveProjectRegistryPath,
 } from "./discovery/helpers";
 import { injectOmpExtensionCliRoots } from "./discovery/omp-extension-roots";
+import { aggregateExtensionFlags } from "./extensibility/extensions/flag-aggregator";
 import { formatExtensionLoadNotifications } from "./extensibility/extensions/load-errors";
-import { ExtensionRunner } from "./extensibility/extensions/runner";
 import type { ExtensionUIContext } from "./extensibility/extensions/types";
 import { scheduleMarketplaceAutoUpdate } from "./extensibility/plugins/marketplace-auto-update";
 import { registerDaemonProjectPresence } from "./launch/presence";
@@ -60,23 +60,18 @@ import type { InteractiveMode } from "./modes/interactive-mode";
 import type { PrintModeOptions } from "./modes/print-mode";
 import { claimRpcInput } from "./modes/rpc/rpc-input";
 import { CURRENT_SETUP_VERSION } from "./modes/setup-version";
-import { initTheme, stopThemeWatcher } from "./modes/theme/theme";
+
 import type { SubmittedUserInput } from "./modes/types";
 import { createWarpEventBridgeExtension } from "./modes/warp-events";
 import { AgentLifecycleManager } from "./registry/agent-lifecycle";
-import {
-	type CreateAgentSessionOptions,
-	type CreateAgentSessionResult,
-	createAgentSession,
-	discoverAuthStorage,
-	loadSessionExtensions,
-} from "./sdk";
+import type { CreateAgentSessionOptions, CreateAgentSessionResult } from "./sdk";
 import type { AgentSession } from "./session/agent-session";
 import type { AuthStorage } from "./session/auth-storage";
 import { describePendingToolCalls } from "./session/exit-diagnostics";
 import { resolveResumableSession, type SessionInfo } from "./session/session-listing";
 import { SessionManager } from "./session/session-manager";
-import { executeBuiltinSlashCommand } from "./slash-commands/builtin-registry";
+
+import { preloadToolModules } from "./startup-preloads";
 import { shouldShowStartupSplash } from "./startup-splash";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "./system-prompt";
 import { createPersistedSubagentReviverFactory } from "./task/persisted-revive";
@@ -505,6 +500,7 @@ async function runInteractiveMode(
 	// `omp join <link>`: dispatch through the same builtin path as a typed
 	// `/join` so collab guards and error rendering stay in one place.
 	if (joinLink !== undefined) {
+		const { executeBuiltinSlashCommand } = await import("./slash-commands/builtin-registry");
 		await executeBuiltinSlashCommand(`/join ${joinLink}`, { ctx: mode });
 	}
 
@@ -1083,8 +1079,8 @@ export async function buildSessionOptions(
 }
 
 interface RunRootCommandDependencies {
-	createAgentSession?: typeof createAgentSession;
-	discoverAuthStorage?: typeof discoverAuthStorage;
+	createAgentSession?: (options: CreateAgentSessionOptions) => Promise<CreateAgentSessionResult>;
+	discoverAuthStorage?: (agentDir?: string) => Promise<AuthStorage>;
 	selectSession?: typeof selectSession;
 	runAcpMode?: RunAcpMode;
 	settings?: Settings;
@@ -1109,12 +1105,18 @@ export async function runRootCommand(
 
 	const notifs: (InteractiveModeNotify | null)[] = [];
 
-// Kick off Settings.init in parallel with discoverAuthStorage — it reads config
-// files + opens SQLite, independent of authStorage. For --version/--export the
-// process exits before the await, so the background work is harmless.
-const settingsPromise = logger.time("settings:init", Settings.init, { cwd: getProjectDir(), configFiles: parsedArgs.config });
-const authStorage = await logger.time("discoverAuthStorage", deps.discoverAuthStorage ?? discoverAuthStorage);
-const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(authStorage));
+	// Kick off Settings.init in parallel with discoverAuthStorage — it reads config
+	// files + opens SQLite, independent of authStorage. For --version/--export the
+	// process exits before the await, so the background work is harmless.
+	const settingsPromise = logger.time("settings:init", Settings.init, {
+		cwd: getProjectDir(),
+		configFiles: parsedArgs.config,
+	});
+	const sdkPromise = import("./sdk");
+	preloadToolModules();
+	const sdk = await sdkPromise;
+	const authStorage = await logger.time("discoverAuthStorage", deps.discoverAuthStorage ?? sdk.discoverAuthStorage);
+	const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(authStorage));
 
 	if (parsedArgs.version) {
 		writeStartupNotice(parsedArgs, `${VERSION}\n`);
@@ -1231,7 +1233,16 @@ const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(
 
 	await logger.time(
 		"initTheme:final",
-		initTheme,
+		async (
+			enableWatcher: boolean,
+			symbolPreset?: string,
+			colorBlindMode?: boolean,
+			darkTheme?: string,
+			lightTheme?: string,
+		) => {
+			const { initTheme } = await import("./modes/theme/theme");
+			await initTheme(enableWatcher, symbolPreset as any, colorBlindMode, darkTheme, lightTheme);
+		},
 		isInteractive,
 		settingsInstance.get("symbolPreset"),
 		settingsInstance.get("colorBlindMode"),
@@ -1414,7 +1425,7 @@ const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(
 		}
 	}
 
-	const createAgentSessionImpl = deps.createAgentSession ?? createAgentSession;
+	const createAgentSessionImpl = deps.createAgentSession ?? sdk.createAgentSession;
 	const createSession = async (options: CreateAgentSessionOptions): Promise<CreateAgentSessionResult> => {
 		const result = await logger.time("createAgentSession", createAgentSessionImpl, options);
 		// Kick off background model discovery only after createAgentSession finishes its parallel
@@ -1447,36 +1458,37 @@ const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(
 		// string-flag value such as `--target @notes.md` is the flag's value, not a
 		// file — and the same result is handed to createAgentSession via
 		// `preloadedExtensions` so the discovery work is not repeated.
+		let initialArgs = parsedArgs;
+		const eventBus = new EventBus();
+		sessionOptions.eventBus = eventBus;
 		if (isInteractive) {
 			sessionOptions.extensions = [...(sessionOptions.extensions ?? []), createWarpEventBridgeExtension()];
 		}
-
-		const eventBus = new EventBus();
-		const extensionsResult = await loadSessionExtensions(sessionOptions, cwd, settingsInstance, eventBus);
-		const extensionFlagSink: ExtensionFlagSink = {
-			getFlags: () => ExtensionRunner.aggregateFlags(extensionsResult.extensions),
-			setFlagValue: (name, value) => {
-				extensionsResult.runtime.flagValues.set(name, value);
-			},
-		};
-		const initialArgs = applyExtensionFlags(extensionFlagSink, rawArgs) ?? parsedArgs;
-		normalizeContinueSessionArgs(initialArgs, rawArgs);
-		for (const message of formatExtensionLoadNotifications(extensionsResult.errors)) {
-			if (isInteractive) {
-				notifs.push({ kind: "warn", message });
-			} else {
-				process.stderr.write(`${chalk.yellow(`${message}\n`)}`);
+		if (isInteractive || isProtocolMode) {
+			const extensionsResult = await sdk.loadSessionExtensions(sessionOptions, cwd, settingsInstance, eventBus);
+			const extensionFlagSink: ExtensionFlagSink = {
+				getFlags: () => aggregateExtensionFlags(extensionsResult.extensions),
+				setFlagValue: (name, value) => {
+					extensionsResult.runtime.flagValues.set(name, value);
+				},
+			};
+			initialArgs = applyExtensionFlags(extensionFlagSink, rawArgs) ?? parsedArgs;
+			for (const message of formatExtensionLoadNotifications(extensionsResult.errors)) {
+				if (isInteractive) {
+					notifs.push({ kind: "warn", message });
+				} else {
+					process.stderr.write(`${chalk.yellow(`${message}\n`)}`);
+				}
 			}
+			sessionOptions.preloadedExtensions = extensionsResult;
+			if (reportUnrecognizedFlags(initialArgs)) {
+				process.exit(2);
+			}
+		} else {
+			sessionOptions.disableExtensionDiscovery = true;
+			sessionOptions.slashCommands = [];
 		}
-		// Fail fast on stale/typo flags (e.g. `omp --list-models`) now that we
-		// know the real extension flag set. Without this check the unrecognized
-		// token gets silently consumed and any following positional leaks as the
-		// initial prompt — kicking off a real LLM session, MCP connection, and
-		// tool calls (issue #2459). Exit code 2 matches the conventional
-		// "command line usage error" convention.
-		if (reportUnrecognizedFlags(initialArgs)) {
-			process.exit(2);
-		}
+		normalizeContinueSessionArgs(initialArgs, rawArgs);
 		const processedFiles =
 			initialArgs.fileArgs.length > 0
 				? await logger.time("processFileArguments", () =>
@@ -1502,11 +1514,8 @@ const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(
 			stdoutIsTTY: process.stdout.isTTY,
 		});
 
-		const { session, setToolUIContext, modelFallbackMessage, lspServers, mcpManager } = await createSession({
-			...sessionOptions,
-			eventBus,
-			preloadedExtensions: extensionsResult,
-		});
+		const { session, setToolUIContext, modelFallbackMessage, lspServers, mcpManager } =
+			await createSession(sessionOptions);
 
 		// Cold-revive support: a `parked` subagent ref restored from disk (Agent Hub
 		// scan, collab mirror, resumed process) has a sessionFile but no in-memory
@@ -1555,7 +1564,7 @@ const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(
 
 		if (mode === "rpc" || mode === "rpc-ui") {
 			// Branch-only protocol runner: keep RPC host code out of normal interactive startup.
-			const runRpcMode: RunRpcMode = (await import("./modes/rpc/rpc-mode")).runRpcMode;
+			const { runRpcMode } = await import("./modes/rpc/rpc-mode");
 			stopStartupWatchdog();
 			await runRpcMode(session, mode === "rpc-ui" ? setToolUIContext : undefined, eventBus, rpcInput);
 		} else if (isInteractive) {
@@ -1618,7 +1627,7 @@ const modelRegistry = logger.time("modelRegistry:init", () => new ModelRegistry(
 				logger.printTimings();
 			}
 			await session.dispose();
-			stopThemeWatcher();
+			(await import("./modes/theme/theme")).stopThemeWatcher();
 			await postmortem.quit(0);
 		}
 	}

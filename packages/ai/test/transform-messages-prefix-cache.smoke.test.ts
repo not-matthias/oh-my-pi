@@ -32,14 +32,25 @@ const otherModel: Model<"anthropic-messages"> = buildModel({
 	reasoning: true,
 });
 
-function assistant(content: AssistantMessage["content"], timestamp: number, stopReason: AssistantMessage["stopReason"] = "toolUse"): AssistantMessage {
+function assistant(
+	content: AssistantMessage["content"],
+	timestamp: number,
+	stopReason: AssistantMessage["stopReason"] = "toolUse",
+): AssistantMessage {
 	return {
 		role: "assistant",
 		content,
 		api: "anthropic-messages",
 		provider: "anthropic",
 		model: "claude-sonnet-4-5",
-		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
 		stopReason,
 		timestamp,
 	};
@@ -69,7 +80,16 @@ describe("transformMessages prefix cache", () => {
 			toolResult("call_1", "file a contents", 3),
 		];
 		transformMessages(grown, model); // prime cache
-		grown.push(assistant([{ type: "thinking", thinking: "reasoning two", thinkingSignature: "sig_bbb" }, { type: "text", text: "done" }], 4, "stop"));
+		grown.push(
+			assistant(
+				[
+					{ type: "thinking", thinking: "reasoning two", thinkingSignature: "sig_bbb" },
+					{ type: "text", text: "done" },
+				],
+				4,
+				"stop",
+			),
+		);
 		const cached = transformMessages(grown, model); // reuse prefix, re-transform tail
 
 		const fresh: Message[] = [
@@ -83,7 +103,14 @@ describe("transformMessages prefix cache", () => {
 				2,
 			),
 			toolResult("call_1", "file a contents", 3),
-			assistant([{ type: "thinking", thinking: "reasoning two", thinkingSignature: "sig_bbb" }, { type: "text", text: "done" }], 4, "stop"),
+			assistant(
+				[
+					{ type: "thinking", thinking: "reasoning two", thinkingSignature: "sig_bbb" },
+					{ type: "text", text: "done" },
+				],
+				4,
+				"stop",
+			),
 		];
 		const recomputed = transformMessages(fresh, model);
 
@@ -94,20 +121,46 @@ describe("transformMessages prefix cache", () => {
 	it("cached multi-step growth equals full re-transform (cross-model target)", () => {
 		const grown: Message[] = [
 			{ role: "user", content: "start", timestamp: 1 },
-			assistant([{ type: "text", text: "first" }, { type: "toolCall", id: "c1", name: "run", arguments: {} }], 2),
+			assistant(
+				[
+					{ type: "text", text: "first" },
+					{ type: "toolCall", id: "c1", name: "run", arguments: {} },
+				],
+				2,
+			),
 			toolResult("c1", "out1", 3),
 		];
 		transformMessages(grown, otherModel); // prime
-		grown.push(assistant([{ type: "thinking", thinking: "t1", thinkingSignature: "s1" }, { type: "toolCall", id: "c2", name: "run", arguments: {} }], 4));
+		grown.push(
+			assistant(
+				[
+					{ type: "thinking", thinking: "t1", thinkingSignature: "s1" },
+					{ type: "toolCall", id: "c2", name: "run", arguments: {} },
+				],
+				4,
+			),
+		);
 		transformMessages(grown, otherModel);
 		grown.push(toolResult("c2", "out2", 5));
 		const cached = transformMessages(grown, otherModel);
 
 		const fresh: Message[] = [
 			{ role: "user", content: "start", timestamp: 1 },
-			assistant([{ type: "text", text: "first" }, { type: "toolCall", id: "c1", name: "run", arguments: {} }], 2),
+			assistant(
+				[
+					{ type: "text", text: "first" },
+					{ type: "toolCall", id: "c1", name: "run", arguments: {} },
+				],
+				2,
+			),
 			toolResult("c1", "out1", 3),
-			assistant([{ type: "thinking", thinking: "t1", thinkingSignature: "s1" }, { type: "toolCall", id: "c2", name: "run", arguments: {} }], 4),
+			assistant(
+				[
+					{ type: "thinking", thinking: "t1", thinkingSignature: "s1" },
+					{ type: "toolCall", id: "c2", name: "run", arguments: {} },
+				],
+				4,
+			),
 			toolResult("c2", "out2", 5),
 		];
 		expect(json(cached)).toEqual(json(transformMessages(fresh, otherModel)));
@@ -129,13 +182,27 @@ describe("transformMessages prefix cache", () => {
 	it("config change (different model) invalidates the cache", () => {
 		const arr: Message[] = [
 			{ role: "user", content: "hi", timestamp: 1 },
-			assistant([{ type: "thinking", thinking: "th", thinkingSignature: "sx" }, { type: "text", text: "hey" }], 2, "stop"),
+			assistant(
+				[
+					{ type: "thinking", thinking: "th", thinkingSignature: "sx" },
+					{ type: "text", text: "hey" },
+				],
+				2,
+				"stop",
+			),
 		];
 		transformMessages(arr, model); // prime with `model`
 		const withOtherModel = transformMessages(arr, otherModel); // different configKey -> must recompute
 		const freshOther: Message[] = [
 			{ role: "user", content: "hi", timestamp: 1 },
-			assistant([{ type: "thinking", thinking: "th", thinkingSignature: "sx" }, { type: "text", text: "hey" }], 2, "stop"),
+			assistant(
+				[
+					{ type: "thinking", thinking: "th", thinkingSignature: "sx" },
+					{ type: "text", text: "hey" },
+				],
+				2,
+				"stop",
+			),
 		];
 		expect(json(withOtherModel)).toEqual(json(transformMessages(freshOther, otherModel)));
 	});

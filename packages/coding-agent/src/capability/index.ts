@@ -135,10 +135,13 @@ async function ensureLazyModulesLoaded(capability?: string): Promise<void> {
 		if (capability && m.capabilities && !m.capabilities.includes(capability)) continue;
 		// Load each module at most once (cached via the Map).
 		if (!lazyModuleState.has(i)) {
-			lazyModuleState.set(i, m.loader().then(
-				() => {},
-				() => {},
-			));
+			lazyModuleState.set(
+				i,
+				m.loader().then(
+					() => {},
+					() => {},
+				),
+			);
 		}
 		promises.push(lazyModuleState.get(i)!);
 	}
