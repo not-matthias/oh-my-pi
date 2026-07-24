@@ -1,7 +1,9 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use pi_ast::block::{block_range_at, BlockRangeOptions};
-use pi_ast::ops::{compile_pattern, resolve_strictness};
-use pi_ast::SupportLang;
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use pi_ast::{
+	SupportLang,
+	block::{BlockRangeOptions, block_range_at},
+	ops::{compile_pattern, resolve_strictness},
+};
 
 const RUST_SOURCE: &str = r#"use std::collections::HashMap;
 

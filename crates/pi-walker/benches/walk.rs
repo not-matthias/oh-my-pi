@@ -5,7 +5,7 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use pi_walker::{WalkDetail, WalkFilter, WalkRequest};
 
 const DIRECTORY_FANOUT: [usize; 5] = [5, 5, 5, 4, 2];
