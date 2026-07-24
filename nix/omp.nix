@@ -24,6 +24,7 @@
   buildFHSEnv,
   git,
   gnutar,
+  llvmPackages,
   cacert,
   writeText,
   src,
@@ -110,6 +111,12 @@ let
         findutils
         gnugrep
         which
+        llvmPackages.libclang # libclang.so for bindgen (maudio-sys)
+        cmake # for audiopus_sys build script
+        opus # libopus.a for audiopus_sys linking
+        gnumake # common cmake/ninja build dep
+        python3 # common cmake/configure dep
+        ninja # cmake -G Ninja generator
       ];
     runScript = "bash";
   };
@@ -144,6 +151,7 @@ let
         # cc-rs: use gcc (nixpkgs gcc is on PATH as /usr/bin/gcc inside the FHS).
         export CC=gcc
         export CXX=g++
+        export LIBCLANG_PATH="${llvmPackages.libclang.lib}/lib"
         mkdir -p "$CARGO_HOME" .cargo
         cp ${cargoConfig} .cargo/config.toml
 
