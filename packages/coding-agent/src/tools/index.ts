@@ -7,16 +7,11 @@ import type { Rule } from "../capability/rule";
 import type { PromptTemplate } from "../config/prompt-templates";
 import type { Settings } from "../config/settings";
 import { EditTool } from "../edit";
-import { checkJuliaKernelAvailability } from "../eval/jl/kernel";
-import { checkPythonKernelAvailability } from "../eval/py/kernel";
-import { checkRubyKernelAvailability } from "../eval/rb/kernel";
 import type { ToolPathWithSource } from "../extensibility/custom-tools";
 import type { Skill } from "../extensibility/skills";
 import type { GoalModeState, GoalRuntime } from "../goals";
-import { GoalTool } from "../goals/tools/goal-tool";
 import type { HindsightSessionState } from "../hindsight/state";
 import type { LocalProtocolOptions } from "../internal-urls";
-import { LspTool } from "../lsp";
 import type { MCPManager } from "../mcp";
 import type { MnemopiSessionState } from "../mnemopi/state";
 import type { PlanModeState } from "../plan-mode/state";
@@ -34,71 +29,56 @@ import { canSpawnAtDepth, type StructuredSubagentSchemaMode } from "../task/type
 import type { EventBus } from "../utils/event-bus";
 import { WebSearchTool } from "../web/search";
 import type { WorkspaceTree } from "../workspace-tree";
-import { AskTool } from "./ask";
-import { AstEditTool } from "./ast-edit";
-import { AstGrepTool } from "./ast-grep";
 import { BashTool } from "./bash";
-import { BrowserTool } from "./browser";
 import { type BuiltinToolName, type HiddenToolName, normalizeToolNames } from "./builtin-names";
-import { type CheckpointState, CheckpointTool, type CompletedRewindState, RewindTool } from "./checkpoint";
-import { ComputerTool } from "./computer";
-import { DebugTool } from "./debug";
-import { EvalTool } from "./eval";
+import type { CheckpointState, CompletedRewindState } from "./checkpoint";
 import { resolveEvalBackends } from "./eval-backends";
-import { GithubTool } from "./gh";
 import { GlobTool } from "./glob";
 import { GrepTool } from "./grep";
 import { HubTool, isIrcEnabled } from "./hub";
-import { InspectImageTool } from "./inspect-image";
-import { LearnTool } from "./learn";
-import { ManageSkillTool } from "./manage-skill";
-import { MemoryEditTool } from "./memory-edit";
-import { MemoryRecallTool } from "./memory-recall";
-import { MemoryReflectTool } from "./memory-reflect";
-import { MemoryRetainTool } from "./memory-retain";
 import { wrapToolWithMetaNotice } from "./output-meta";
 import { ReadTool } from "./read";
 import type { PlanProposalHandler } from "./resolve";
-import { type TodoPhase, TodoTool } from "./todo";
+import type { TodoPhase } from "./todo";
 import { WriteTool } from "./write";
 import { isMountableUnderXdev, XdevRegistry } from "./xdev";
 import { YieldTool } from "./yield";
 
 export * from "../edit";
-export * from "../goals";
-export * from "../lsp";
+export type * from "../goals";
+export type * from "../lsp";
 export * from "../session/streaming-output";
 export * from "../task";
 export * from "../web/search";
-export * from "./ask";
-export * from "./ast-edit";
-export * from "./ast-grep";
+export type * from "./ask";
+export type * from "./ast-edit";
+export type * from "./ast-grep";
 export * from "./bash";
-export * from "./browser";
-export * from "./checkpoint";
-export * from "./computer";
-export * from "./computer/supervisor";
-export * from "./debug";
+export type * from "./browser";
+export type * from "./checkpoint";
+export type * from "./computer";
+export type * from "./computer/supervisor";
+export type * from "./debug";
 export * from "./essential-tools";
-export * from "./eval";
+export type * from "./eval";
 export * from "./eval-backends";
-export * from "./gh";
+export type * from "./gh";
 export * from "./glob";
 export * from "./grep";
 export * from "./hub";
 export * from "./image-gen";
-export * from "./inspect-image";
-export * from "./learn";
-export * from "./manage-skill";
-export * from "./memory-edit";
-export * from "./memory-recall";
-export * from "./memory-reflect";
-export * from "./memory-retain";
+export type * from "./inspect-image";
+export type * from "./learn";
+export type * from "./manage-skill";
+export type * from "./memory-edit";
+export type * from "./memory-recall";
+export type * from "./memory-reflect";
+export type * from "./memory-retain";
 export * from "./read";
 export * from "./report-tool-issue";
 export * from "./resolve";
 export * from "./review";
-export * from "./todo";
+export type * from "./todo";
 export * from "./tts";
 export * from "./vibe";
 export * from "./write";
@@ -383,6 +363,12 @@ export interface ToolSession {
 
 export type ToolFactory = (session: ToolSession) => Tool | null | Promise<Tool | null>;
 
+// Several tool factories use dynamic import() to defer loading of heavy
+// modules (puppeteer-core, checkpoint, debug, memory backends, etc.) until
+// the tool is actually instantiated. This keeps them off the startup module
+// graph. Static imports remain for tools re-exported by sdk.ts and for modules
+// whose other symbols are needed at barrel load time.
+
 /**
  * Public callable factory map. External callers may invoke `BUILTIN_TOOLS.read(session)` or
  * `BUILTIN_TOOLS[name](session)` to construct a tool directly.
@@ -391,37 +377,100 @@ export const BUILTIN_TOOLS: Record<BuiltinToolName, ToolFactory> = {
 	read: s => new ReadTool(s),
 	bash: s => new BashTool(s),
 	edit: s => new EditTool(s),
-	ast_grep: s => new AstGrepTool(s),
-	ast_edit: s => new AstEditTool(s),
-	ask: AskTool.createIf,
-	debug: DebugTool.createIf,
-	eval: s => new EvalTool(s),
-	github: GithubTool.createIf,
+	ast_grep: async s => {
+		const { AstGrepTool } = await import("./ast-grep");
+		return new AstGrepTool(s);
+	},
+	ast_edit: async s => {
+		const { AstEditTool } = await import("./ast-edit");
+		return new AstEditTool(s);
+	},
+	ask: async s => {
+		const { AskTool } = await import("./ask");
+		return AskTool.createIf(s);
+	},
+	debug: async s => {
+		const { DebugTool } = await import("./debug");
+		return DebugTool.createIf(s);
+	},
+	eval: async s => {
+		const { EvalTool } = await import("./eval");
+		return new EvalTool(s);
+	},
+	github: async s => {
+		const { GithubTool } = await import("./gh");
+		return GithubTool.createIf(s);
+	},
 	glob: s => new GlobTool(s, { rootPathAlias: true }),
 	grep: s => new GrepTool(s),
-	lsp: LspTool.createIf,
-	inspect_image: s => new InspectImageTool(s),
-	browser: s => new BrowserTool(s),
-	computer: s => new ComputerTool(s),
-	checkpoint: CheckpointTool.createIf,
-	rewind: RewindTool.createIf,
+	lsp: async s => {
+		const { LspTool } = await import("../lsp");
+		return LspTool.createIf(s);
+	},
+	inspect_image: async s => {
+		const { InspectImageTool } = await import("./inspect-image");
+		return new InspectImageTool(s);
+	},
+	browser: async s => {
+		const { BrowserTool } = await import("./browser");
+		return new BrowserTool(s);
+	},
+	computer: async s => {
+		const { ComputerTool } = await import("./computer");
+		return new ComputerTool(s);
+	},
+	checkpoint: async s => {
+		const { CheckpointTool } = await import("./checkpoint");
+		return CheckpointTool.createIf(s);
+	},
+	rewind: async s => {
+		const { RewindTool } = await import("./checkpoint");
+		return RewindTool.createIf(s);
+	},
 	task: s => TaskTool.create(s),
 	hub: s => new HubTool(s),
-	todo: s => new TodoTool(s),
+	todo: async s => {
+		const { TodoTool } = await import("./todo");
+		return new TodoTool(s);
+	},
 	web_search: s => new WebSearchTool(s),
 	write: s => new WriteTool(s),
-	memory_edit: MemoryEditTool.createIf,
-	retain: MemoryRetainTool.createIf,
-	recall: MemoryRecallTool.createIf,
-	reflect: MemoryReflectTool.createIf,
-	learn: LearnTool.createIf,
-	manage_skill: ManageSkillTool.createIf,
+	memory_edit: async s => {
+		const { MemoryEditTool } = await import("./memory-edit");
+		return MemoryEditTool.createIf(s);
+	},
+	retain: async s => {
+		const { MemoryRetainTool } = await import("./memory-retain");
+		return MemoryRetainTool.createIf(s);
+	},
+	recall: async s => {
+		const { MemoryRecallTool } = await import("./memory-recall");
+		return MemoryRecallTool.createIf(s);
+	},
+	reflect: async s => {
+		const { MemoryReflectTool } = await import("./memory-reflect");
+		return MemoryReflectTool.createIf(s);
+	},
+	learn: async s => {
+		const { LearnTool } = await import("./learn");
+		return LearnTool.createIf(s);
+	},
+	manage_skill: async s => {
+		const { ManageSkillTool } = await import("./manage-skill");
+		return ManageSkillTool.createIf(s);
+	},
 };
 
 export const HIDDEN_TOOLS: Record<HiddenToolName, ToolFactory> = {
 	yield: s => new YieldTool(s),
-	goal: s => new GoalTool(s),
+	goal: async s => {
+		const { GoalTool } = await import("../goals/tools/goal-tool");
+		return new GoalTool(s);
+	},
 };
+
+/** Merged factory lookup built once at module load, not per createTools() call. */
+const ALL_TOOLS: Record<string, ToolFactory> = { ...BUILTIN_TOOLS, ...HIDDEN_TOOLS };
 
 export type ToolName = BuiltinToolName;
 
@@ -457,6 +506,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	const evalRequested = requestedTools === undefined || requestedTools.includes("eval");
 	if (!skipEvalPreflight && !allowJs && evalRequested) {
 		if (allowPython) {
+			const { checkPythonKernelAvailability } = await import("../eval/py/kernel");
 			const availability = await logger.time(
 				"createTools:pythonCheck",
 				checkPythonKernelAvailability,
@@ -469,6 +519,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			}
 		}
 		if (allowRuby) {
+			const { checkRubyKernelAvailability } = await import("../eval/rb/kernel");
 			const availability = await checkRubyKernelAvailability(
 				session.cwd,
 				session.settings.get("ruby.interpreter")?.trim() || undefined,
@@ -479,6 +530,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			}
 		}
 		if (allowJulia) {
+			const { checkJuliaKernelAvailability } = await import("../eval/jl/kernel");
 			const availability = await checkJuliaKernelAvailability(
 				session.cwd,
 				session.settings.get("julia.interpreter")?.trim() || undefined,
@@ -541,7 +593,6 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			}
 		}
 	}
-	const allTools: Record<string, ToolFactory> = { ...BUILTIN_TOOLS, ...HIDDEN_TOOLS };
 	const isToolAllowed = (name: string) => {
 		if (name === "goal") return goalEnabled && goalModeActive;
 		if (name === "lsp") return enableLsp && session.settings.get("lsp.enabled");
@@ -587,10 +638,10 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		requestedTools.push("yield");
 	}
 
-	const filteredRequestedTools = requestedTools?.filter(name => name in allTools && isToolAllowed(name));
+	const filteredRequestedTools = requestedTools?.filter(name => name in ALL_TOOLS && isToolAllowed(name));
 	const baseEntries =
 		filteredRequestedTools !== undefined
-			? filteredRequestedTools.map(name => [name, allTools[name]] as const)
+			? filteredRequestedTools.map(name => [name, ALL_TOOLS[name]] as const)
 			: [
 					...Object.entries(BUILTIN_TOOLS)
 						.filter(([name]) => isToolAllowed(name))

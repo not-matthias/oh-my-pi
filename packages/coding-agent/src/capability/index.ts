@@ -127,7 +127,7 @@ export function registerLazyModule(loader: () => Promise<unknown>, capabilities?
  * — e.g. `loadCapability("settings")` only loads the 5 lazy providers that
  * register a settings provider, not all 14.
  */
-async function ensureLazyModulesLoaded(capability?: string): Promise<void> {
+export async function ensureLazyModulesLoaded(capability?: string): Promise<void> {
 	const promises: Promise<void>[] = [];
 	for (let i = 0; i < lazyModuleLoaders.length; i++) {
 		const m = lazyModuleLoaders[i];
