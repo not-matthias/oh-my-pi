@@ -1,5 +1,10 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { ensurePiNativesLoaded, getThemeByName, highlightCode, setThemeInstance } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import {
+	ensurePiNativesLoaded,
+	getThemeByName,
+	highlightCode,
+	setThemeInstance,
+} from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 
 const unifiedDiffChunks = [
 	[
