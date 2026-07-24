@@ -78,7 +78,7 @@ let
     '';
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-fZy8d7aQwpMv9nMaysBEzCm/jp4C1yDGRoblNHbTzj8=";
+    outputHash = "sha256-JS2gj+Vt8BBB7OEtugDKt8k8WnvzJk7bQKAOrO1Yc0Y=";
   };
 
   cargoConfig = writeText "cargo-config.toml" ''
