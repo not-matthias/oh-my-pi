@@ -6,7 +6,8 @@ import { APP_NAME } from "@oh-my-pi/pi-utils";
 import { Args, Command, Flags } from "@oh-my-pi/pi-utils/cli";
 import { type Args as ParsedArgs, parseArgs, reportCliUsageError } from "../cli/args";
 import { runRootCommand } from "../main";
-import { prepareAcpTerminalAuthArgs } from "../modes/acp/terminal-auth";
+// prepareAcpTerminalAuthArgs is lazy-loaded in run() to keep the ACP terminal
+// auth module (and its transitive imports) off the startup import graph.
 import { CLI_THINKING_LEVELS } from "../thinking";
 
 export default class Index extends Command {
@@ -196,6 +197,7 @@ export default class Index extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
+		const { prepareAcpTerminalAuthArgs } = await import("../modes/acp/terminal-auth");
 		const { args } = prepareAcpTerminalAuthArgs(this.argv);
 		let parsed: ParsedArgs;
 		try {

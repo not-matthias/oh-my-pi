@@ -21,3 +21,10 @@ libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Wdk_Storage_FileSystem"] }
+
+[dev-dependencies]
+criterion = { package = "codspeed-criterion-compat", workspace = true }
+
+[[bench]]
+name = "walk"
+harness = false

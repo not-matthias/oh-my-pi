@@ -475,8 +475,11 @@ async function loadSettings(ctx: LoadContext): Promise<LoadResult<Settings>> {
 
 	const userBase = getUserClaude(ctx);
 	const userSettingsJson = path.join(userBase, "settings.json");
+	const projectBase = getProjectClaude(ctx);
+	const projectSettingsJson = path.join(projectBase, "settings.json");
 
-	const userContent = await readFile(userSettingsJson);
+	const [userContent, projectContent] = await Promise.all([readFile(userSettingsJson), readFile(projectSettingsJson)]);
+
 	if (userContent) {
 		const data = tryParseJson<Record<string, unknown>>(userContent);
 		if (data) {
@@ -491,9 +494,6 @@ async function loadSettings(ctx: LoadContext): Promise<LoadResult<Settings>> {
 		}
 	}
 
-	const projectBase = getProjectClaude(ctx);
-	const projectSettingsJson = path.join(projectBase, "settings.json");
-	const projectContent = await readFile(projectSettingsJson);
 	if (projectContent) {
 		const data = tryParseJson<Record<string, unknown>>(projectContent);
 		if (data) {

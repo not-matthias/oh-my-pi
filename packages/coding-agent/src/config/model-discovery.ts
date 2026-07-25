@@ -5,7 +5,7 @@
  * `discoverModelsByProviderType` with a `DiscoveryContext`; built-in provider
  * discovery lives in pi-catalog's provider-models.
  */
-import { type ApiKey, type FetchImpl, withAuth } from "@oh-my-pi/pi-ai";
+import { type ApiKey, withAuth } from "@oh-my-pi/pi-ai/auth-retry";
 import type { Api, Model, RemoteCompactionConfig } from "@oh-my-pi/pi-ai/types";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import {
@@ -21,7 +21,7 @@ import {
 	OPENAI_COMPAT_DISCOVERY_DEFAULT_CONTEXT_WINDOW,
 	OPENAI_COMPAT_DISCOVERY_DEFAULT_MAX_TOKENS,
 } from "@oh-my-pi/pi-catalog/provider-models/openai-compat";
-import type { ModelSpec, OpenAICompat } from "@oh-my-pi/pi-catalog/types";
+import type { FetchImpl, ModelSpec, OpenAICompat } from "@oh-my-pi/pi-catalog/types";
 import { isRecord } from "@oh-my-pi/pi-utils";
 import type { ProviderDiscovery } from "./models-config-schema";
 

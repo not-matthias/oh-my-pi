@@ -12,11 +12,11 @@
  * `home` instead of `os.homedir()`. Module-level CLI injection state is
  * reset between cases so they cannot poison each other.
  */
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getCapability } from "@oh-my-pi/pi-coding-agent/capability";
+import { ensureLazyModulesLoaded, getCapability } from "@oh-my-pi/pi-coding-agent/capability";
 import { clearCache } from "@oh-my-pi/pi-coding-agent/capability/fs";
 import { hookCapability } from "@oh-my-pi/pi-coding-agent/capability/hook";
 import { mcpCapability } from "@oh-my-pi/pi-coding-agent/capability/mcp";
@@ -84,6 +84,10 @@ function buildExtensionPackage(packageDir: string): void {
 		JSON.stringify({ mcpServers: { lsp: { command: "lsp-server", args: ["--stdio"] } } }),
 	);
 }
+
+beforeAll(async () => {
+	await ensureLazyModulesLoaded();
+});
 
 beforeEach(() => {
 	clearCache();

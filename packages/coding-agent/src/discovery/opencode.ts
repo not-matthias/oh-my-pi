@@ -351,28 +351,30 @@ async function loadSettings(ctx: LoadContext): Promise<LoadResult<Settings>> {
 
 	// User-level: ~/.config/opencode/opencode.json
 	const userConfigPath = getUserPath(ctx, "opencode", "opencode.json");
-	if (userConfigPath) {
-		const content = await readFile(userConfigPath);
-		if (content) {
-			const parsed = tryParseJson<Record<string, unknown>>(content);
-			if (parsed) {
-				items.push({
-					path: userConfigPath,
-					data: parsed,
-					level: "user",
-					_source: createSourceMeta(PROVIDER_ID, userConfigPath, "user"),
-				});
-			} else {
-				warnings.push(`Invalid JSON in ${userConfigPath}`);
-			}
+	// Project-level: opencode.json in project root
+	const projectConfigPath = path.join(ctx.cwd, "opencode.json");
+
+	const [userContent, projectContent] = await Promise.all([
+		userConfigPath ? readFile(userConfigPath) : Promise.resolve(undefined),
+		readFile(projectConfigPath),
+	]);
+
+	if (userConfigPath && userContent) {
+		const parsed = tryParseJson<Record<string, unknown>>(userContent);
+		if (parsed) {
+			items.push({
+				path: userConfigPath,
+				data: parsed,
+				level: "user",
+				_source: createSourceMeta(PROVIDER_ID, userConfigPath, "user"),
+			});
+		} else {
+			warnings.push(`Invalid JSON in ${userConfigPath}`);
 		}
 	}
 
-	// Project-level: opencode.json in project root
-	const projectConfigPath = path.join(ctx.cwd, "opencode.json");
-	const content = await readFile(projectConfigPath);
-	if (content) {
-		const parsed = tryParseJson<Record<string, unknown>>(content);
+	if (projectContent) {
+		const parsed = tryParseJson<Record<string, unknown>>(projectContent);
 		if (parsed) {
 			items.push({
 				path: projectConfigPath,

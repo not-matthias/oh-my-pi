@@ -32,7 +32,11 @@ import { invalidate as invalidateCapabilityFsCache } from "../capability/fs";
 import { type Settings as SettingsCapabilityItem, settingsCapability } from "../capability/settings";
 import type { ModelRole } from "../config/model-roles";
 import { loadCapability } from "../discovery";
-import { isLightTheme, setAutoThemeMapping, setColorBlindMode, setSymbolPreset } from "../modes/theme/theme";
+import {
+	setColorBlindModeOverride,
+	setSymbolPresetOverride,
+	setAutoThemeMapping as setThemeStateAutoMapping,
+} from "../modes/theme/theme-state";
 import { AgentStorage } from "../session/agent-storage";
 import { AUTO_IMAGE_PROVIDER_ORDER, isImageProviderId } from "../tools/image-providers";
 import { type EditMode, normalizeEditMode } from "../utils/edit-mode";
@@ -1092,17 +1096,28 @@ export class Settings {
 		try {
 			const result = await loadCapability(settingsCapability.id, { cwd: this.#cwd });
 			let merged: RawSettings = {};
+			let nativeModelRoles: unknown;
 			for (const item of result.items as SettingsCapabilityItem[]) {
 				if (item.level === "project") {
 					merged = this.#deepMerge(merged, item.data as RawSettings);
 				}
+				// The native .omp/config.yml's modelRoles must take precedence
+				// over other providers' project settings. Track it from the
+				// capability result (already read by the builtin provider) and
+				// re-apply last, avoiding a redundant re-read of config.yml.
+				if (item.level === "project" && item._source.provider === "native" && item.path.endsWith("config.yml")) {
+					const roles = getByPath(item.data as RawSettings, ["modelRoles"]);
+					if (roles !== undefined) {
+						nativeModelRoles = roles;
+					}
+				}
 			}
-			const nativeProject = await this.#loadYaml(path.join(this.#cwd, ".omp", "config.yml"));
-			const nativeModelRoles = getByPath(nativeProject, ["modelRoles"]);
 			if (nativeModelRoles !== undefined) {
 				merged = this.#deepMerge(merged, { modelRoles: nativeModelRoles });
 			}
-			return this.#migrateRawSettings(merged);
+			merged = this.#migrateRawSettings(merged);
+			await resolveLegacyThemeStrings(merged);
+			return merged;
 		} catch {
 			return {};
 		}
@@ -1157,6 +1172,7 @@ export class Settings {
 			const parsed: unknown = JSONC.parse(await Bun.file(settingsJsonPath).text());
 			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
 				settings = this.#deepMerge(settings, this.#migrateRawSettings(parsed as RawSettings));
+				await resolveLegacyThemeStrings(settings);
 				migrated = true;
 				try {
 					fs.renameSync(settingsJsonPath, `${settingsJsonPath}.bak`);
@@ -1169,6 +1185,7 @@ export class Settings {
 			const dbSettings = this.#storage?.getSettings();
 			if (dbSettings) {
 				settings = this.#deepMerge(settings, this.#migrateRawSettings(dbSettings as RawSettings));
+				await resolveLegacyThemeStrings(settings);
 				migrated = true;
 			}
 		} catch {}
@@ -1208,17 +1225,15 @@ export class Settings {
 			}
 		}
 
-		// Migrate old flat "theme" string to nested theme.dark/theme.light
+		// Migrate old flat "theme" string to nested theme.dark/theme.light.
+		// The isLightTheme check is moved to async callers to avoid pulling
+		// the full theme module into the startup critical path.
 		if (typeof raw.theme === "string") {
-			const oldTheme = raw.theme;
-			if (oldTheme === "light" || oldTheme === "dark") {
-				// Built-in defaults — just remove, let new defaults apply
+			const theme = raw.theme;
+			if (theme === "light" || theme === "dark") {
 				delete raw.theme;
-			} else {
-				// Custom theme — detect luminance to place in correct slot
-				const slot = isLightTheme(oldTheme) ? "light" : "dark";
-				raw.theme = { [slot]: oldTheme };
 			}
+			// Non-default themes keep the string; resolved by async caller.
 		}
 
 		// task.isolation.enabled (boolean) -> task.isolation.mode (enum)
@@ -1949,26 +1964,22 @@ class SettingSignal<A extends unknown[] = []> {
 const SETTING_HOOKS: Partial<Record<SettingPath, SettingHook<any>>> = {
 	"theme.dark": value => {
 		if (typeof value === "string") {
-			setAutoThemeMapping("dark", value);
+			setThemeStateAutoMapping("dark", value);
 		}
 	},
 	"theme.light": value => {
 		if (typeof value === "string") {
-			setAutoThemeMapping("light", value);
+			setThemeStateAutoMapping("light", value);
 		}
 	},
 	symbolPreset: value => {
 		if (typeof value === "string" && (value === "unicode" || value === "nerd" || value === "ascii")) {
-			setSymbolPreset(value).catch(err => {
-				logger.warn("Settings: symbolPreset hook failed", { preset: value, error: String(err) });
-			});
+			setSymbolPresetOverride(value);
 		}
 	},
 	colorBlindMode: value => {
 		if (typeof value === "boolean") {
-			setColorBlindMode(value).catch(err => {
-				logger.warn("Settings: colorBlindMode hook failed", { enabled: value, error: String(err) });
-			});
+			setColorBlindModeOverride(value);
 		}
 	},
 	"provider.appendOnlyContext": value => {
@@ -2110,3 +2121,22 @@ export const settings = new Proxy({} as Settings, {
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Resolve legacy `theme: "<name>"` strings (where name is not "light"/"dark")
+ * to `theme: { dark: <name> }` or `theme: { light: <name> }` by checking the
+ * theme's luminance. Kept async so the theme module import does not block the
+ * startup critical path — most users have no legacy theme string.
+ */
+async function resolveLegacyThemeStrings(raw: RawSettings): Promise<void> {
+	const theme = (raw as Record<string, unknown>).theme;
+	if (typeof theme !== "string") return;
+	const name = theme;
+	if (name === "light" || name === "dark") {
+		delete raw.theme;
+		return;
+	}
+	const { isLightTheme } = await import("../modes/theme/theme");
+	delete raw.theme;
+	raw.theme = { [isLightTheme(name) ? "light" : "dark"]: name };
+}

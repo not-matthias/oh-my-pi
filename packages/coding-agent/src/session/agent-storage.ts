@@ -7,7 +7,7 @@ import {
 	isSqliteBusyError,
 	SqliteAuthCredentialStore,
 	type StoredAuthCredential,
-} from "@oh-my-pi/pi-ai";
+} from "@oh-my-pi/pi-ai/auth-storage";
 import { AsyncDrain, getAgentDbPath, getStatsDbPath, isRecord, logger } from "@oh-my-pi/pi-utils";
 import type { RawSettings as Settings } from "../config/settings";
 

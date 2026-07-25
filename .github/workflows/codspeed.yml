@@ -1,0 +1,130 @@
+# CodSpeed performance benchmarks.
+#
+# Three tracks:
+# 1. tinybench micro-benchmarks — run INSIDE the CodSpeed action via `run:`
+#    so the walltime instrument can sample per-bench metrics.
+# 2. CLI exec: benchmarks (boot) — discovered from codspeed.yml by the action.
+# 3. Rust crate benchmarks — via cargo-codspeed in simulation mode.
+#
+# Walltime mode is required for TS/Bun since CodSpeed's CPU-simulation
+# instrument is V8-only. Rust benches use simulation (works on compiled code).
+#
+# Caching: Bun store + Rust target/ + sccache mirror the setup in
+# .github/actions/build-native. save-if restricts cache writes to main.
+
+name: CodSpeed
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: codspeed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  micro-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-04-29
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: codspeed-native-${{ hashFiles('crates/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'packages/natives/**') }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+      - run: bun run build:native
+      - uses: CodSpeedHQ/action@v4
+        with:
+          mode: walltime
+          run: bun run bench:codspeed
+        env:
+          CODSPEED_WALLTIME_PROFILER: samply
+
+  cli-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-04-29
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: codspeed-native-${{ hashFiles('crates/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'packages/natives/**') }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+      - run: bun run build:native
+      - name: Symlink bun to system PATH for CodSpeed exec harness
+        run: sudo ln -sf "$(which bun)" /usr/local/bin/bun
+      - uses: CodSpeedHQ/action@v4
+        with:
+          mode: walltime
+        env:
+          CODSPEED_WALLTIME_PROFILER: samply
+          PI_TIMING: x
+          PI_STRICT_EDIT_MODE: "1"
+
+  rust-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-04-29
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: codspeed-rust-${{ hashFiles('crates/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml') }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-codspeed
+      - run: cargo codspeed build -p pi-walker -p pi-ast
+      - uses: CodSpeedHQ/action@v4
+        with:
+          mode: simulation
+          run: cargo codspeed run

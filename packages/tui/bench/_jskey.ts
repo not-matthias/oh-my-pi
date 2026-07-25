@@ -28,7 +28,7 @@ let kittyProtocolActive = false;
  * Set the global Kitty keyboard protocol state.
  * Called by ProcessTerminal after detecting protocol support.
  */
-function setKittyProtocolActive(active: boolean): void {
+export function setKittyProtocolActive(active: boolean): void {
 	kittyProtocolActive = active;
 }
 
@@ -702,7 +702,7 @@ function parseKeyId(keyId: string): ParsedKeyId | null {
  * @param data - Raw input data from terminal
  * @param keyId - Key identifier (e.g., "ctrl+c", "escape", Key.ctrl("c"))
  */
-function matchesKey(data: string, keyId: KeyId): boolean {
+export function matchesKey(data: string, keyId: KeyId): boolean {
 	const parsed = parseKeyId(keyId);
 	if (!parsed) return false;
 
@@ -1048,7 +1048,7 @@ function matchesKey(data: string, keyId: KeyId): boolean {
  * @param data - Raw input data from terminal
  * @returns Key identifier string (e.g., "ctrl+c") or undefined
  */
-function parseKey(data: string): string | undefined {
+export function parseKey(data: string): string | undefined {
 	const kitty = parseKittySequence(data);
 	if (kitty) {
 		const { codepoint, baseLayoutKey, modifier } = kitty;

@@ -15,7 +15,7 @@ import {
 	TodoTool,
 	todoMatchesAnyDescription,
 	todoToolRenderer,
-} from "@oh-my-pi/pi-coding-agent/tools";
+} from "@oh-my-pi/pi-coding-agent/tools/todo";
 import type { Component } from "@oh-my-pi/pi-tui";
 import { type } from "arktype";
 

@@ -35,7 +35,6 @@ import {
 } from "./advisor";
 import { AsyncJobManager } from "./async";
 import { AutoLearnController, buildAutoLearnInstructions } from "./autolearn/controller";
-import { createAutoresearchExtension } from "./autoresearch";
 import { loadCapability } from "./capability";
 import { type Rule, ruleCapability, setActiveRules } from "./capability/rule";
 import { bucketRules } from "./capability/rule-buckets";
@@ -124,7 +123,7 @@ import {
 	SecretObfuscator,
 	secretEntriesNeedPlaceholderKey,
 } from "./secrets";
-import { AgentSession, type InitialRetryFallbackState, type PlanYolo, type Prewalk } from "./session/agent-session";
+import type { AgentSession, InitialRetryFallbackState, PlanYolo, Prewalk } from "./session/agent-session";
 import { discoverAuthStorage as discoverAuthStorageFromConfig } from "./session/auth-broker-config";
 import type { AuthStorage } from "./session/auth-storage";
 import { createInterruptedTurnAbortMessage } from "./session/exit-diagnostics";
@@ -177,9 +176,7 @@ import {
 	createVibeTools,
 	type DeferredDiagnosticsEntry,
 	defaultLoadModeForToolName,
-	discoverStartupLspServers,
 	EditTool,
-	EvalTool,
 	GlobTool,
 	GrepTool,
 	getSearchTools,
@@ -187,14 +184,13 @@ import {
 	isMountableUnderXdev,
 	type LspStartupServerInfo,
 	ReadTool,
-	releaseComputerSessionsForOwner,
 	type Tool,
 	type ToolSession,
 	WebSearchTool,
 	WriteTool,
-	warmupLspServers,
 } from "./tools";
 import { isMCPToolName, normalizeToolNames } from "./tools/builtin-names";
+import { releaseComputerSessionsForOwner } from "./tools/computer/supervisor";
 import { ToolContextStore } from "./tools/context";
 import { isIrcEnabled } from "./tools/hub";
 import { getImageGenTools } from "./tools/image-gen";
@@ -606,7 +602,6 @@ export {
 	BUILTIN_TOOLS,
 	createTools,
 	EditTool,
-	EvalTool,
 	GlobTool,
 	GrepTool,
 	HIDDEN_TOOLS,
@@ -1901,6 +1896,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			}
 
 			inlineExtensions.push(...(options.extensions ?? []));
+			// Lazy-load the autoresearch extension: the ~14-module subtree
+			// (dashboard, git, helpers, state, storage, 4 tool factories,
+			// types, and 4 .md templates) is only needed when the autoresearch
+			// extension is actually active — not on every startup. Dynamic
+			// import keeps it off the startup module-load hot path.
+			// (AGENTS.md forbids inline imports generally, but branch-only
+			// dynamic imports are the established pattern here — see rpc-mode,
+			// print-mode, export/html, setup-wizard — because a static import
+			// would eagerly pull the whole subtree into every startup.)
+			const { createAutoresearchExtension } = await import("./autoresearch");
 			inlineExtensions.push(createAutoresearchExtension);
 			if (customTools.length > 0) {
 				inlineExtensions.push(createCustomToolsExtension(customTools));
@@ -3087,7 +3092,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// Owned only when this session created the manager; subagents receive a
 		// parent's manager via `options.mcpManager` and MUST NOT disconnect it.
 		const ownedMcpManager = options.mcpManager ? undefined : mcpManager;
-		session = new AgentSession({
+		const { AgentSession: AgentSessionClass } = await import("./session/agent-session");
+		session = new AgentSessionClass({
 			advisorWatchdogPrompt,
 			advisorContextPrompt,
 			advisorSharedInstructions: discoveredAdvisors.sharedInstructions,
@@ -3278,41 +3284,44 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// CPU parsing big `initialize` responses concurrently with the LLM stream consumer, jittering
 		// perceived latency.
 		let lspServers: CreateAgentSessionResult["lspServers"];
-		if (enableLsp && options.hasUI && settings.get("lsp.lazy")) {
-			lspServers = discoverStartupLspServers(cwd, "available");
-		} else if (enableLsp && options.hasUI) {
-			lspServers = discoverStartupLspServers(cwd);
-			if (lspServers.length > 0) {
-				void (async () => {
-					try {
-						const result = await logger.time("warmupLspServers", warmupLspServers, cwd);
-						const serversByName = new Map(result.servers.map(server => [server.name, server] as const));
-						for (const server of lspServers ?? []) {
-							const next = serversByName.get(server.name);
-							if (!next) continue;
-							server.status = next.status;
-							server.fileTypes = next.fileTypes;
-							server.error = next.error;
+		if (enableLsp && options.hasUI) {
+			const { discoverStartupLspServers, warmupLspServers } = await import("./lsp");
+			if (settings.get("lsp.lazy")) {
+				lspServers = discoverStartupLspServers(cwd, "available");
+			} else {
+				lspServers = discoverStartupLspServers(cwd);
+				if (lspServers.length > 0) {
+					void (async () => {
+						try {
+							const result = await logger.time("warmupLspServers", warmupLspServers, cwd);
+							const serversByName = new Map(result.servers.map(server => [server.name, server] as const));
+							for (const server of lspServers ?? []) {
+								const next = serversByName.get(server.name);
+								if (!next) continue;
+								server.status = next.status;
+								server.fileTypes = next.fileTypes;
+								server.error = next.error;
+							}
+							const event: LspStartupEvent = {
+								type: "completed",
+								servers: result.servers,
+							};
+							if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
+						} catch (error) {
+							const errorMessage = error instanceof Error ? error.message : String(error);
+							logger.warn("LSP server warmup failed", { cwd, error: errorMessage });
+							for (const server of lspServers ?? []) {
+								server.status = "error";
+								server.error = errorMessage;
+							}
+							const event: LspStartupEvent = {
+								type: "failed",
+								error: errorMessage,
+							};
+							if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
 						}
-						const event: LspStartupEvent = {
-							type: "completed",
-							servers: result.servers,
-						};
-						if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
-					} catch (error) {
-						const errorMessage = error instanceof Error ? error.message : String(error);
-						logger.warn("LSP server warmup failed", { cwd, error: errorMessage });
-						for (const server of lspServers ?? []) {
-							server.status = "error";
-							server.error = errorMessage;
-						}
-						const event: LspStartupEvent = {
-							type: "failed",
-							error: errorMessage,
-						};
-						if (!startupQuiet) eventBus.emit(LSP_STARTUP_EVENT_CHANNEL, event);
-					}
-				})();
+					})();
+				}
 			}
 		}
 

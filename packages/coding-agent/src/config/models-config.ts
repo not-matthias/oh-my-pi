@@ -5,8 +5,8 @@
 import type { Api, ModelSpec } from "@oh-my-pi/pi-ai/types";
 import { ConfigFile } from "./config-file";
 import {
+	getModelsConfigSchema,
 	type ModelsConfig,
-	ModelsConfigSchema,
 	type ProviderAuthMode,
 	type ProviderDiscovery,
 } from "./models-config-schema";
@@ -106,7 +106,7 @@ export function validateProviderConfiguration(
 	}
 }
 
-export const ModelsConfigFile = new ConfigFile<ModelsConfig>("models", ModelsConfigSchema).withValidation(
+export const ModelsConfigFile = new ConfigFile<ModelsConfig>("models", getModelsConfigSchema).withValidation(
 	"models",
 	config => {
 		const providers = config.providers ?? {};

@@ -1,5 +1,6 @@
-import { type ResolvedThinkingLevel, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
-import { Effort, type Model, THINKING_EFFORTS } from "@oh-my-pi/pi-ai";
+import { type ResolvedThinkingLevel, ThinkingLevel } from "@oh-my-pi/pi-agent-core/thinking";
+import type { Model } from "@oh-my-pi/pi-ai";
+import { Effort, THINKING_EFFORTS } from "@oh-my-pi/pi-catalog/effort";
 import { clampThinkingLevelForModel, getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
 
 /**

@@ -382,88 +382,174 @@ export function redactSensitiveInObject(val: unknown): { result: unknown; change
 	return { result: val, changed: false };
 }
 
+/**
+ * Per-message memo for the credential-redaction pass. Redaction is a pure
+ * per-message function (no cross-message state, no provider-config dependency),
+ * so memoizing it on the message object is safe across providers and configs:
+ * a stable message object (the agent loop appends rather than rewrites earlier
+ * turns) is scrubbed exactly once.
+ */
+const redactMessageMemo = new WeakMap<Message, Message>();
+
 function redactSensitiveCredentialsInMessages(messages: Message[]): Message[] {
 	if (!credentialRedactionEnabled) return messages;
 	return messages.map((msg): Message => {
-		if (msg.role === "user" || msg.role === "developer") {
-			const userMsg = msg as UserMessage | DeveloperMessage;
-			if (typeof userMsg.content === "string") {
-				const redacted = redactSensitiveCredentials(userMsg.content);
-				if (redacted === userMsg.content) return msg;
-				return { ...userMsg, content: redacted } as Message;
-			}
-			const contentArray = userMsg.content;
-			let changed = false;
-			const content = contentArray.map((block): UserMessage["content"][number] => {
-				if (block.type === "text") {
-					const redacted = redactSensitiveCredentials(block.text);
-					if (redacted !== block.text) {
-						changed = true;
-						return { ...block, text: redacted };
-					}
+		const memoized = redactMessageMemo.get(msg);
+		if (memoized !== undefined) return memoized;
+		const result: Message = (() => {
+			if (msg.role === "user" || msg.role === "developer") {
+				const userMsg = msg as UserMessage | DeveloperMessage;
+				if (typeof userMsg.content === "string") {
+					const redacted = redactSensitiveCredentials(userMsg.content);
+					if (redacted === userMsg.content) return msg;
+					return { ...userMsg, content: redacted } as Message;
 				}
-				return block;
-			});
-			return (changed ? { ...userMsg, content } : userMsg) as Message;
-		}
-
-		if (msg.role === "toolResult") {
-			const toolResultMsg = msg as ToolResultMessage;
-			let changed = false;
-			const content = toolResultMsg.content.map((block): ToolResultMessage["content"][number] => {
-				if (block.type === "text") {
-					const redacted = redactSensitiveCredentials(block.text);
-					if (redacted !== block.text) {
-						changed = true;
-						return { ...block, text: redacted };
-					}
-				}
-				return block;
-			});
-			return (changed ? { ...toolResultMsg, content } : toolResultMsg) as Message;
-		}
-
-		if (msg.role === "assistant") {
-			const assistantMsg = msg as AssistantMessage;
-			let changed = false;
-			const content = assistantMsg.content.map((block): AssistantMessage["content"][number] => {
-				if (block.type === "text") {
-					const redacted = redactSensitiveCredentials(block.text);
-					if (redacted !== block.text) {
-						changed = true;
-						return { ...block, text: redacted };
-					}
-				} else if (block.type === "thinking") {
-					const redacted = redactSensitiveCredentials(block.thinking);
-					if (redacted !== block.thinking) {
-						changed = true;
-						return { ...block, thinking: redacted, thinkingSignature: undefined };
-					}
-				} else if (block.type === "toolCall") {
-					if (block.arguments) {
-						const { result: redactedArgs, changed: argsChanged } = redactSensitiveInObject(block.arguments);
-						if (argsChanged) {
+				const contentArray = userMsg.content;
+				let changed = false;
+				const content = contentArray.map((block): UserMessage["content"][number] => {
+					if (block.type === "text") {
+						const redacted = redactSensitiveCredentials(block.text);
+						if (redacted !== block.text) {
 							changed = true;
-							const castArgs =
-								redactedArgs && typeof redactedArgs === "object" && !Array.isArray(redactedArgs)
-									? (redactedArgs as Record<string, unknown>)
-									: undefined;
-							return {
-								...block,
-								arguments: castArgs,
-								thoughtSignature: undefined,
-							} as AssistantMessage["content"][number];
+							return { ...block, text: redacted };
 						}
 					}
-				}
-				return block;
-			});
-			return (changed ? { ...assistantMsg, content } : assistantMsg) as Message;
-		}
+					return block;
+				});
+				return (changed ? { ...userMsg, content } : userMsg) as Message;
+			}
 
-		return msg;
+			if (msg.role === "toolResult") {
+				const toolResultMsg = msg as ToolResultMessage;
+				let changed = false;
+				const content = toolResultMsg.content.map((block): ToolResultMessage["content"][number] => {
+					if (block.type === "text") {
+						const redacted = redactSensitiveCredentials(block.text);
+						if (redacted !== block.text) {
+							changed = true;
+							return { ...block, text: redacted };
+						}
+					}
+					return block;
+				});
+				return (changed ? { ...toolResultMsg, content } : toolResultMsg) as Message;
+			}
+
+			if (msg.role === "assistant") {
+				const assistantMsg = msg as AssistantMessage;
+				let changed = false;
+				const content = assistantMsg.content.map((block): AssistantMessage["content"][number] => {
+					if (block.type === "text") {
+						const redacted = redactSensitiveCredentials(block.text);
+						if (redacted !== block.text) {
+							changed = true;
+							return { ...block, text: redacted };
+						}
+					} else if (block.type === "thinking") {
+						const redacted = redactSensitiveCredentials(block.thinking);
+						if (redacted !== block.thinking) {
+							changed = true;
+							return { ...block, thinking: redacted, thinkingSignature: undefined };
+						}
+					} else if (block.type === "toolCall") {
+						if (block.arguments) {
+							const { result: redactedArgs, changed: argsChanged } = redactSensitiveInObject(block.arguments);
+							if (argsChanged) {
+								changed = true;
+								const castArgs =
+									redactedArgs && typeof redactedArgs === "object" && !Array.isArray(redactedArgs)
+										? (redactedArgs as Record<string, unknown>)
+										: undefined;
+								return {
+									...block,
+									arguments: castArgs,
+									thoughtSignature: undefined,
+								} as AssistantMessage["content"][number];
+							}
+						}
+					}
+					return block;
+				});
+				return (changed ? { ...assistantMsg, content } : assistantMsg) as Message;
+			}
+
+			return msg;
+		})();
+		redactMessageMemo.set(msg, result);
+		return result;
 	});
 }
+
+/**
+ * Stable content fingerprint of every input that affects `transformMessages`'
+ * output. Built from field VALUES (not object identity) so it stays constant
+ * across requests even when a provider resolves a fresh `compat` object or
+ * passes a fresh `normalizeToolCallId` closure each call — as long as the
+ * behavior is unchanged. Every in-tree normalize callback's behavior is fully
+ * determined by the fields below (it branches only on id content + these compat
+ * flags), so the fingerprint captures it without needing the callback identity.
+ */
+const transformObjectIdentity = new WeakMap<object, number>();
+let transformObjectIdentityNext = 1;
+function transformStableFingerprint(value: unknown): string {
+	if (value === null || value === undefined) return String(value);
+	if (typeof value === "object") {
+		try {
+			return JSON.stringify(value) ?? "undef";
+		} catch {
+			let token = transformObjectIdentity.get(value as object);
+			if (token === undefined) {
+				token = transformObjectIdentityNext++;
+				transformObjectIdentity.set(value as object, token);
+			}
+			return `id:${token}`;
+		}
+	}
+	return String(value);
+}
+function buildTransformConfigKey<TApi extends Api>(
+	model: Model<TApi>,
+	targetCompat: Model<TApi>["compat"],
+	maxNormalizedToolCallIdLength: number,
+	duplicateToolCallIdSuffixPrefix: string,
+): string {
+	return [
+		model.provider,
+		model.api,
+		model.id,
+		transformStableFingerprint(model.reasoning),
+		transformStableFingerprint(model.compat),
+		transformStableFingerprint(targetCompat),
+		maxNormalizedToolCallIdLength,
+		duplicateToolCallIdSuffixPrefix,
+	].join("|");
+}
+
+/**
+ * Prefix cache for `transformMessages`. The conversation array
+ * (`context.messages`) is reference-stable across consecutive requests — the
+ * agent loop appends via `messages.push` rather than rebuilding — so a WeakMap
+ * keyed on it survives from one request to the next. The cached prefix covers
+ * sanitized[0..latestIdx): everything BEFORE the latest surviving assistant.
+ * Every message there was transformed with `isLatestSurvivingAssistant=false`;
+ * appending tail messages can only move `latestSurvivingAssistantIndex` forward
+ * (or leave it), so those transforms stay valid. The latest assistant itself
+ * (and anything after it) is always re-transformed — exactly the volatile "last
+ * 1-2 messages" that change between requests.
+ *
+ * Safety: relies on earlier conversation messages being immutable (the agent
+ * loop appends; compaction replaces the whole array, which changes the
+ * reference and misses the cache). `deduplicateToolCallIds` and the tool-call /
+ * tool-result pairing second pass are recomputed every call — they are cheap
+ * and free of stale aggregate state.
+ */
+interface TransformPrefixCacheEntry {
+	configKey: string;
+	latestIdx: number;
+	firstPassPrefix: Message[];
+	toolCallIdMap: Map<string, string>;
+}
+const transformPrefixCache = new WeakMap<Message[], TransformPrefixCacheEntry>();
 
 export function transformMessages<TApi extends Api>(
 	messages: Message[],
@@ -473,6 +559,14 @@ export function transformMessages<TApi extends Api>(
 	duplicateToolCallIdSuffixPrefix = "_dup",
 	targetCompat: Model<TApi>["compat"] = model.compat,
 ): Message[] {
+	const originalMessages = messages;
+	const configKey = buildTransformConfigKey(
+		model,
+		targetCompat,
+		maxNormalizedToolCallIdLength,
+		duplicateToolCallIdSuffixPrefix,
+	);
+	const cachedEntry = transformPrefixCache.get(originalMessages);
 	// Redact sensitive credential-like patterns from all outbound messages when
 	// the host opted in via `configureCredentialRedaction` — prevents security
 	// block errors from LLM providers (e.g. invalid_prompt).
@@ -489,7 +583,7 @@ export function transformMessages<TApi extends Api>(
 
 	const latestSurvivingAssistantIndex = getLatestSurvivingAssistantIndex(messages);
 	// First pass: transform messages (thinking blocks, tool call ID normalization)
-	const normalizedMessages = messages.map((msg, index) => {
+	const transformOne = (msg: Message, index: number): Message => {
 		// User and developer messages pass through unchanged
 		if (msg.role === "user" || msg.role === "developer") {
 			return msg;
@@ -832,7 +926,47 @@ export function transformMessages<TApi extends Api>(
 			};
 		}
 		return msg;
-	});
+	};
+
+	// --- Prefix cache: reuse the first-pass transform of stable history ---
+	let firstPassPrefix: Message[];
+	if (
+		cachedEntry !== undefined &&
+		cachedEntry.configKey === configKey &&
+		cachedEntry.latestIdx > 0 &&
+		latestSurvivingAssistantIndex >= cachedEntry.latestIdx
+	) {
+		// Reuse [0..cachedEntry.latestIdx): those messages were transformed with
+		// isLatestSurvivingAssistant=false, and the guard above guarantees the
+		// current latest surviving assistant is at or beyond that boundary, so
+		// none of them has flipped to "latest". Seed the id map so the volatile
+		// tail's toolResult normalization sees the same remapping.
+		firstPassPrefix = cachedEntry.firstPassPrefix;
+		for (const [id, normalized] of cachedEntry.toolCallIdMap) toolCallIdMap.set(id, normalized);
+		// Fold the newly-stable middle [cachedEntry.latestIdx..L) into the prefix
+		// in place (O(middle), not O(prefix)) so it is cached for next time.
+		if (latestSurvivingAssistantIndex > cachedEntry.latestIdx) {
+			const middle = messages
+				.slice(cachedEntry.latestIdx, latestSurvivingAssistantIndex)
+				.map((msg, i) => transformOne(msg, cachedEntry.latestIdx + i));
+			for (const m of middle) firstPassPrefix.push(m);
+		}
+	} else {
+		firstPassPrefix =
+			latestSurvivingAssistantIndex > 0
+				? messages.slice(0, latestSurvivingAssistantIndex).map((msg, i) => transformOne(msg, i))
+				: [];
+	}
+	// Snapshot the accumulated id map at the prefix boundary (state after
+	// [0..L), before the volatile tail) so a future call can replay it.
+	const prefixToolCallIdMap = new Map(toolCallIdMap);
+	// The tail starts at the latest surviving assistant (index L). When there is
+	// no surviving assistant (L = -1), the tail is the whole array — clamp to 0
+	// so Array.prototype.slice doesn't treat -1 as "last element".
+	const tailStart = latestSurvivingAssistantIndex < 0 ? 0 : latestSurvivingAssistantIndex;
+	const firstPassTail =
+		tailStart < messages.length ? messages.slice(tailStart).map((msg, i) => transformOne(msg, tailStart + i)) : [];
+	const normalizedMessages = [...firstPassPrefix, ...firstPassTail];
 	const transformed = deduplicateToolCallIds(
 		normalizedMessages,
 		maxNormalizedToolCallIdLength,
@@ -1070,6 +1204,13 @@ export function transformMessages<TApi extends Api>(
 
 	flushPendingToolCalls(Date.now());
 	flushPendingAbortedToolCalls();
+
+	transformPrefixCache.set(originalMessages, {
+		configKey,
+		latestIdx: latestSurvivingAssistantIndex,
+		firstPassPrefix,
+		toolCallIdMap: prefixToolCallIdMap,
+	});
 
 	return result;
 }

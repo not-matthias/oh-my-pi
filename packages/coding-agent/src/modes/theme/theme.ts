@@ -2,13 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { Effort } from "@oh-my-pi/pi-ai";
-import {
-	detectMacOSAppearance,
-	MacAppearanceObserver,
-	type HighlightColors as NativeHighlightColors,
-	highlightCode as nativeHighlightCode,
-	supportsLanguage as nativeSupportsLanguage,
-} from "@oh-my-pi/pi-natives";
+import type { HighlightColors as NativeHighlightColors } from "@oh-my-pi/pi-natives";
 import type { EditorTheme, MarkdownTheme, SelectListTheme, SettingsListTheme, SymbolTheme } from "@oh-my-pi/pi-tui";
 import { adjustHsv, colorLuma, getCustomThemesDir, isEnoent, logger, relativeLuminance } from "@oh-my-pi/pi-utils";
 import { type } from "arktype";
@@ -21,6 +15,37 @@ import lightThemeJson from "./light.json" with { type: "json" };
 import { resolveMermaidAscii } from "./mermaid-cache";
 
 export { getLanguageFromPath, isMarkdownPath } from "../../utils/lang-from-path";
+
+// --- Lazy pi-natives loader -------------------------------------------------
+// `@oh-my-pi/pi-natives` is an N-API addon: importing it runs `loadNative()`,
+// which dlopens the .node binary and installs a crash handler / runs AVX2 +
+// filesystem probes. A static top-level `import` would do all of that when
+// theme.ts is first imported — on the startup critical path — so it is deferred
+// to a dynamic import here. `initTheme()` awaits the preload before any
+// rendering runs; the synchronous call sites below degrade gracefully (plain
+// code, "dark" appearance, no-op observer) until the addon resolves, mirroring
+// the existing pre-init unstyled fallback (`fgOrPlain`). This is the
+// platform-specific-module exception to the no-dynamic-import rule: a static
+// import cannot defer the addon's module-eval side effects.
+type PiNativesModule = typeof import("@oh-my-pi/pi-natives");
+let piNatives: PiNativesModule | undefined;
+let piNativesPromise: Promise<PiNativesModule | undefined> | undefined;
+
+/** Load the pi-natives N-API addon lazily, off the synchronous import graph. */
+export async function ensurePiNativesLoaded(): Promise<PiNativesModule | undefined> {
+	if (piNatives) return piNatives;
+	if (!piNativesPromise) {
+		piNativesPromise = (async () => {
+			try {
+				piNatives = await import("@oh-my-pi/pi-natives");
+			} catch (err) {
+				logger.warn("Failed to load pi-natives addon; syntax highlighting disabled", { err });
+			}
+			return piNatives;
+		})();
+	}
+	return piNativesPromise;
+}
 
 // ============================================================================
 // Symbol Presets
@@ -2151,7 +2176,7 @@ function detectTerminalBackground(): "dark" | "light" {
 
 	// Tier 3: host macOS appearance for known-broken terminal paths only.
 	if (shouldUseMacOSAppearanceFallback()) {
-		const macAppearance = macOSReportedAppearance ?? detectMacOSAppearance();
+		const macAppearance = macOSReportedAppearance ?? piNatives?.detectMacOSAppearance();
 		if (macAppearance) return macAppearance;
 	}
 
@@ -2213,6 +2238,7 @@ export async function initTheme(
 	autoDetectedTheme = true;
 	autoDarkTheme = darkTheme ?? "dark";
 	autoLightTheme = lightTheme ?? "light";
+	await ensurePiNativesLoaded();
 	const name = getDefaultTheme();
 	currentThemeName = name;
 	currentSymbolPresetOverride = symbolPreset;
@@ -2521,8 +2547,8 @@ function startMacAppearanceObserver(): void {
 	stopMacAppearanceObserver();
 	if (!shouldUseMacOSAppearanceFallback()) return;
 	try {
-		macOSReportedAppearance = detectMacOSAppearance() ?? undefined;
-		macObserver = MacAppearanceObserver.start((err, appearance) => {
+		macOSReportedAppearance = piNatives?.detectMacOSAppearance() ?? undefined;
+		macObserver = piNatives?.MacAppearanceObserver.start((err, appearance) => {
 			if (!err && (appearance === "dark" || appearance === "light")) {
 				macOSReportedAppearance = appearance;
 				reevaluateAutoTheme("macOS fallback");
@@ -2805,9 +2831,10 @@ function highlightCached(code: string, validLang: string | undefined, highlightT
 	if (hit !== undefined) {
 		return hit;
 	}
+	if (!piNatives) return null;
 	let highlighted: string;
 	try {
-		highlighted = nativeHighlightCode(code, validLang, getHighlightColors(highlightTheme));
+		highlighted = piNatives.highlightCode(code, validLang, getHighlightColors(highlightTheme));
 	} catch {
 		return null;
 	}
@@ -2820,7 +2847,7 @@ function highlightCached(code: string, validLang: string | undefined, highlightT
  * Returns array of highlighted lines.
  */
 export function highlightCode(code: string, lang?: string, highlightTheme: Theme = theme): string[] {
-	const validLang = lang && nativeSupportsLanguage(lang) ? lang : undefined;
+	const validLang = lang && (piNatives?.supportsLanguage(lang) ?? false) ? lang : undefined;
 	const highlighted = highlightCached(code, validLang, highlightTheme);
 	// Always return a fresh array: callers (e.g. renderCodeCell) push extra lines
 	// onto the result, which would corrupt the cached string otherwise.
@@ -2929,7 +2956,7 @@ export function getMarkdownTheme(): MarkdownTheme {
 					})
 			: undefined,
 		highlightCode: (code: string, lang?: string): string[] => {
-			const validLang = lang && nativeSupportsLanguage(lang) ? lang : undefined;
+			const validLang = lang && (piNatives?.supportsLanguage(lang) ?? false) ? lang : undefined;
 			const highlighted = highlightCached(code, validLang, theme);
 			if (highlighted !== null) return highlighted.split("\n");
 			return code.split("\n").map(line => theme.fg("mdCodeBlock", line));

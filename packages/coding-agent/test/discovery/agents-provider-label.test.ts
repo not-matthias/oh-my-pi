@@ -6,10 +6,12 @@
  * rules, prompts, commands, and context/system files (never agents).
  */
 import { describe, expect, test } from "bun:test";
+import { ensureLazyModulesLoaded } from "@oh-my-pi/pi-coding-agent/capability";
 import { getAllProvidersInfo } from "@oh-my-pi/pi-coding-agent/discovery";
 
 describe("agents (config-standard) provider label", () => {
-	test("display name disambiguates from the /agents subagents feature", () => {
+	test("display name disambiguates from the /agents subagents feature", async () => {
+		await ensureLazyModulesLoaded();
 		const info = getAllProvidersInfo().find(p => p.id === "agents");
 		expect(info).toBeDefined();
 

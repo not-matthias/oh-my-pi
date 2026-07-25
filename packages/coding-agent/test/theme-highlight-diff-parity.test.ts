@@ -1,5 +1,10 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { getThemeByName, highlightCode, setThemeInstance } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import {
+	ensurePiNativesLoaded,
+	getThemeByName,
+	highlightCode,
+	setThemeInstance,
+} from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 
 const unifiedDiffChunks = [
 	[
@@ -26,6 +31,7 @@ const unifiedDiff = unifiedDiffChunks.join("\n");
 const diffLanguages: Array<"diff" | "patch"> = ["diff", "patch"];
 
 beforeAll(async () => {
+	await ensurePiNativesLoaded();
 	const darkTheme = await getThemeByName("dark");
 	if (!darkTheme) throw new Error("Expected dark theme to exist");
 	setThemeInstance(darkTheme);
